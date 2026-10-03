@@ -1,0 +1,618 @@
+:root {
+  color-scheme: dark;
+}
+
+/* #menu/#play definem display:flex explicitamente (pra layout), o que por
+   padrão venceria o display:none implícito do atributo [hidden]. Essa regra
+   garante que [hidden] sempre esconda de verdade, não importa o que mais
+   esteja definido pro elemento. */
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: #0b0e14;
+  color: #e8e6df;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  height: 100%;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  gap: 12px;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+h1 {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: 0.01em;
+}
+
+h1 .subtitle {
+  font-weight: 400;
+  opacity: 0.6;
+  font-size: 15px;
+}
+
+#menu {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  text-align: center;
+  padding: 32px;
+}
+
+#menu .tagline {
+  max-width: 420px;
+  opacity: 0.7;
+  font-size: 14px;
+  margin: 0;
+}
+
+.menu-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.menu-actions button {
+  background: #f2c879;
+  color: #131722;
+  border: none;
+  border-radius: 6px;
+  padding: 12px 24px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.menu-actions button:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.menu-actions button:disabled {
+  background: #2a2f3c;
+  color: #6b7280;
+  cursor: default;
+}
+
+#play {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.run-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.run-controls button {
+  background: #131722;
+  border: 1px solid #262c3b;
+  border-radius: 6px;
+  color: #e8e6df;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.sell-btn {
+  border-color: #8c2f2f !important;
+  color: #ffb199 !important;
+}
+
+.mute-btn {
+  background: #131722;
+  border: 1px solid #262c3b;
+  border-radius: 6px;
+  color: #e8e6df;
+  padding: 6px 10px;
+  font-size: 13px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.mute-btn:hover {
+  border-color: #3a4256;
+}
+
+#mute-btn-menu {
+  margin-top: 4px;
+}
+
+.run-controls button:hover:not(:disabled) {
+  border-color: #3a4256;
+}
+
+.run-controls button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.speed-controls {
+  display: flex;
+  border: 1px solid #262c3b;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.speed-btn {
+  background: #131722;
+  border: none;
+  border-right: 1px solid #262c3b;
+  color: #e8e6df;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.speed-btn:last-child {
+  border-right: none;
+}
+
+.speed-btn:hover {
+  background: #1c2130;
+}
+
+.speed-btn.active {
+  background: #f2c879;
+  color: #131722;
+  font-weight: 600;
+}
+
+.hud {
+  display: flex;
+  gap: 20px;
+  font-size: 14px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.hud span {
+  opacity: 0.85;
+}
+
+.hud b {
+  color: #f2c879;
+}
+
+/* Menu lateral de torres (estilo BloonsTD): ícone (cabeça da sprite) + nome
+   + botão de interrogação com tooltip explicando o que a torre faz. */
+.game-layout {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.tower-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 188px;
+  flex-shrink: 0;
+}
+
+.sidebar-section-title {
+  margin: 10px 0 2px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.55;
+  font-weight: 600;
+}
+
+.sidebar-section-title:first-child {
+  margin-top: 0;
+}
+
+.game-main {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.tower-slot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tower-btn {
+  flex: 1;
+  min-width: 0;
+  background: #131722;
+  border: 1px solid #262c3b;
+  border-radius: 8px;
+  color: #e8e6df;
+  padding: 5px 8px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s, opacity 0.15s;
+}
+
+.tower-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  background: #0b0e14;
+  flex-shrink: 0;
+  image-rendering: pixelated;
+}
+
+.tower-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tower-btn:hover:not(:disabled) {
+  border-color: #3a4256;
+}
+
+.tower-btn.active {
+  border-color: #f2c879;
+  background: #1c2130;
+}
+
+.tower-btn:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.tower-btn.built {
+  border-color: #3f6b4f;
+}
+
+.tower-btn.built .tower-name::after {
+  content: " ✓";
+  color: #7fbf94;
+}
+
+.tooltip-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.tooltip-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid #3a4256;
+  background: #131722;
+  color: #9aa3b5;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: help;
+  padding: 0;
+}
+
+.tooltip-bubble {
+  position: absolute;
+  left: 26px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 210px;
+  background: #1c2130;
+  border: 1px solid #3a4256;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #e8e6df;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s;
+  z-index: 10;
+}
+
+.tooltip-wrap:hover .tooltip-bubble,
+.tooltip-wrap:focus-within .tooltip-bubble {
+  opacity: 1;
+}
+
+canvas {
+  background: #131722;
+  border: 1px solid #262c3b;
+  border-radius: 8px;
+  touch-action: none;
+  cursor: pointer;
+}
+
+.hint {
+  font-size: 12px;
+  opacity: 0.6;
+  max-width: 528px;
+  text-align: center;
+}
+
+#game-over {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(5, 6, 10, 0.82);
+}
+
+#game-over.visible {
+  display: flex;
+}
+
+#game-over .panel {
+  background: #131722;
+  border: 1px solid #262c3b;
+  border-radius: 12px;
+  padding: 28px 36px;
+  text-align: center;
+  min-width: 280px;
+}
+
+#game-over h2 {
+  margin: 0 0 8px;
+  color: #f2c879;
+}
+
+#game-over p {
+  margin: 4px 0;
+  opacity: 0.85;
+}
+
+.go-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+#game-over button {
+  background: #f2c879;
+  color: #131722;
+  border: none;
+  border-radius: 6px;
+  padding: 10px 20px;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+#game-over button:hover {
+  filter: brightness(1.08);
+}
+
+#game-over #go-menu {
+  background: transparent;
+  color: #e8e6df;
+  border: 1px solid #262c3b;
+}
+
+#menu-ambrosia-badge {
+  font-size: 12px;
+  opacity: 0.8;
+  margin-left: 4px;
+}
+
+/* --- Tela de Melhorias: árvore de habilidades, uma coluna por branch --- */
+
+#upgrades {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  padding: 24px 16px 48px;
+  width: 100%;
+  box-sizing: border-box;
+  max-width: 1100px;
+}
+
+.upgrades-header {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.ambrosia-display {
+  font-size: 14px;
+  background: #131722;
+  border: 1px solid #262c3b;
+  border-radius: 20px;
+  padding: 6px 14px;
+}
+
+.ambrosia-display b {
+  color: #f2c879;
+}
+
+.upgrades-header button {
+  background: transparent;
+  color: #e8e6df;
+  border: 1px solid #262c3b;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.upgrades-header button:hover {
+  border-color: #3a4256;
+}
+
+.tree {
+  display: flex;
+  gap: 20px;
+  justify-content: center;
+  flex-wrap: nowrap;
+  width: 100%;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+
+.branch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 210px;
+  flex-shrink: 0;
+}
+
+.branch-title {
+  margin: 0 0 10px;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.6;
+  font-weight: 600;
+}
+
+.connector {
+  width: 2px;
+  height: 18px;
+  background: #262c3b;
+}
+
+.node {
+  width: 100%;
+  background: #131722;
+  border: 1px solid #262c3b;
+  border-radius: 10px;
+  padding: 12px;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.node.owned {
+  border-color: #7fbf94;
+}
+
+.node.locked {
+  opacity: 0.5;
+}
+
+.node-name {
+  font-weight: 600;
+  color: #f2c879;
+  font-size: 14px;
+}
+
+.node-desc {
+  font-size: 11px;
+  opacity: 0.7;
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+.node-level {
+  font-size: 11px;
+  opacity: 0.6;
+  margin-top: 6px;
+}
+
+.node-bonus {
+  font-size: 12px;
+  color: #7fbf94;
+  margin-top: 2px;
+}
+
+.node-locked-msg,
+.node-maxed-msg {
+  font-size: 11px;
+  opacity: 0.6;
+  margin-top: 10px;
+}
+
+.node-buy {
+  margin-top: 10px;
+  width: 100%;
+  background: #f2c879;
+  color: #131722;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.node-buy:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.node-buy:disabled {
+  background: #2a2f3c;
+  color: #6b7280;
+  cursor: default;
+}
+
+.duplicate-select-label {
+  display: block;
+  margin-top: 10px;
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.duplicate-select-label select {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  background: #0b0e14;
+  color: #e8e6df;
+  border: 1px solid #262c3b;
+  border-radius: 6px;
+  padding: 5px;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+@media (max-width: 760px) {
+  .game-layout {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .tower-sidebar {
+    width: 100%;
+    max-width: 528px;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .tower-slot {
+    width: calc(50% - 3px);
+  }
+}
