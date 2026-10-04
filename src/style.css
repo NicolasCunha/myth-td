@@ -332,15 +332,14 @@ h1 .subtitle {
   font-size: 12px;
   line-height: 1.4;
   color: #e8e6df;
-  opacity: 0;
+  display: none; /* não "opacity: 0": invisível mas ocupando layout, gerava scroll horizontal */
   pointer-events: none;
-  transition: opacity 0.12s;
   z-index: 10;
 }
 
 .tooltip-wrap:hover .tooltip-bubble,
 .tooltip-wrap:focus-within .tooltip-bubble {
-  opacity: 1;
+  display: block;
 }
 
 canvas {
@@ -354,8 +353,9 @@ canvas {
 .hint {
   font-size: 12px;
   opacity: 0.6;
-  max-width: 528px;
+  max-width: 704px;
   text-align: center;
+  margin: 0;
 }
 
 #game-over {
@@ -434,7 +434,7 @@ canvas {
   padding: 24px 16px 48px;
   width: 100%;
   box-sizing: border-box;
-  max-width: 1100px;
+  max-width: 1400px;
 }
 
 .upgrades-header {
@@ -472,13 +472,15 @@ canvas {
   border-color: #3a4256;
 }
 
+/* Os 5 ramos cabem lado a lado numa janela de PC; se a janela for estreita
+   demais, os ramos quebram de linha em vez de criar scroll horizontal. */
 .tree {
   display: flex;
   gap: 20px;
   justify-content: center;
-  flex-wrap: nowrap;
+  align-items: flex-start;
+  flex-wrap: wrap;
   width: 100%;
-  overflow-x: auto;
   padding-bottom: 8px;
 }
 
@@ -486,7 +488,7 @@ canvas {
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: 210px;
+  width: 230px;
   flex-shrink: 0;
 }
 

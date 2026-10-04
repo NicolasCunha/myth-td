@@ -18,8 +18,12 @@ const CORE_HIT_FLASH_DURATION = 0.15; // tremor + flash vermelho no núcleo
 const DAMAGE_POPUP_DURATION = 0.6; // número de dano sobe e desvanece
 const RANGE_PREVIEW_COLOR = "rgba(242,153,74,0.28)"; // laranja translúcido
 
-const ENEMY_RADIUS: Record<EnemyKind, number> = { grunt: 8, fast: 6, tank: 11, healer: 8, boss: 18 };
-const ENEMY_SPRITE_SIZE: Record<EnemyKind, number> = { grunt: 30, fast: 24, tank: 38, healer: 30, boss: 58 };
+// Valores abaixo foram afinados pra células de 48px — SCALE os mantém
+// proporcionais ao tamanho atual da célula (tamanho, raio e velocidade).
+const SCALE = CELL / 48;
+
+const ENEMY_RADIUS: Record<EnemyKind, number> = { grunt: 8 * SCALE, fast: 6 * SCALE, tank: 11 * SCALE, healer: 8 * SCALE, boss: 18 * SCALE };
+const ENEMY_SPRITE_SIZE: Record<EnemyKind, number> = { grunt: 30 * SCALE, fast: 24 * SCALE, tank: 38 * SCALE, healer: 30 * SCALE, boss: 58 * SCALE };
 
 // Curandeiro ("especial"): pulsa periodicamente e restaura HP de aliados próximos.
 const HEAL_INTERVAL = 3;
@@ -29,7 +33,7 @@ const HEAL_PERCENT = 0.2;
 // Primeiro chefe da run — ver GDD > Estrutura da Run (marcos de tempo fixos).
 const BOSS_TIME_MARK = 5 * 60;
 const BOSS_HP = 900;
-const BOSS_SPEED = 28;
+const BOSS_SPEED = 28 * SCALE;
 const BOSS_DAMAGE = 25;
 const BOSS_FAVOR_REWARD = 40;
 const BOSS_BANNER_DURATION = 3.5;
@@ -99,7 +103,7 @@ function pickEnemyKind(elapsedSec: number): EnemyKind {
 
 function enemyStatsFor(kind: EnemyKind, elapsedSec: number) {
   const baseHp = 20 + elapsedSec * 1.1;
-  const baseSpeed = 42 + Math.min(elapsedSec * 0.25, 38);
+  const baseSpeed = (42 + Math.min(elapsedSec * 0.25, 38)) * SCALE;
   switch (kind) {
     case "fast":
       return { hp: baseHp * 0.55, speed: baseSpeed * 1.9, damage: 5, favor: 4 };
@@ -160,6 +164,7 @@ interface SavedEnemy {
 
 export interface SaveData {
   version: 1;
+  cell?: number; // tamanho da célula em px quando salvo (ausente = 48, saves antigos)
   elapsed: number;
   coreHp: number;
   favor: number;
@@ -318,6 +323,7 @@ export class Game {
   serialize(): SaveData {
     return {
       version: 1,
+      cell: CELL,
       elapsed: this.elapsed,
       coreHp: this.coreHp,
       favor: this.favor,
@@ -345,9 +351,11 @@ export class Game {
   // Reconstrói a run a partir de um save. Cooldowns/animações de torre
   // voltam a zero (as torres "acordam" prontas) — simplificação aceitável.
   loadFrom(data: SaveData): void {
+    // Saves feitos com outro tamanho de célula: converte posições/velocidades em px.
+    const k = CELL / (data.cell ?? 48);
     this.towers = data.towers.map((t) => new Tower(t.kind, t.col, t.row, t.cost));
     this.enemies = data.enemies.map((e) => {
-      const enemy = new Enemy(e.kind, e.x, e.y, e.hp, e.speed, e.damage, e.favorReward, e.radius);
+      const enemy = new Enemy(e.kind, e.x * k, e.y * k, e.hp, e.speed * k, e.damage, e.favorReward, e.radius * k);
       enemy.hpLeft = e.hpLeft;
       return enemy;
     });
@@ -899,7 +907,7 @@ export class Game {
       const t = popup.age / popup.ttl;
       const alpha = 1 - t;
       const y = popup.y - t * 18;
-      ctx.font = popup.crit ? "bold 17px system-ui, sans-serif" : "bold 13px system-ui, sans-serif";
+      ctx.font = popup.crit ? "bold 20px system-ui, sans-serif" : "bold 15px system-ui, sans-serif";
       const text = popup.crit ? `${popup.value}!` : String(popup.value);
       ctx.fillStyle = `rgba(20,22,28,${alpha})`;
       ctx.fillText(text, popup.x + 1, y + 1);

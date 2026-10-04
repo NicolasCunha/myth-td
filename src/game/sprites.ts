@@ -144,7 +144,7 @@ function outline(grid: Grid, color: string): void {
   }
 }
 
-const PIXEL_SIZE = 3;
+const PIXEL_SIZE = 4; // 16x16 * 4 = 64px, casa com CELL
 
 function rasterize(grid: Grid, pixelSize = PIXEL_SIZE): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
@@ -553,7 +553,7 @@ function buildBossSprite(): HTMLCanvasElement {
 // identificar do que um ícone genérico. Mantém a proporção, sem distorcer.
 export function buildTowerIcon(bodySprite: HTMLCanvasElement, destSize = 36): HTMLCanvasElement {
   const srcSize = GRID * PIXEL_SIZE;
-  const srcH = 34; // topo da sprite: cabeça, cocar/elmo e início dos ombros
+  const srcH = Math.round(srcSize * 0.71); // topo da sprite: cabeça, cocar/elmo e início dos ombros
   const canvas = document.createElement("canvas");
   canvas.width = destSize;
   canvas.height = destSize;

@@ -2,7 +2,8 @@
 // vai ser ajustada depois de testar se o tamanho equilibra legibilidade e espaço tático.
 export const COLS = 11;
 export const ROWS = 11;
-export const CELL = 48;
+// Célula de 64px (sprites 16x16 com pixel 4x) — janela pensada pra PC.
+export const CELL = 64;
 
 export const CORE_COL = Math.floor(COLS / 2);
 export const CORE_ROW = Math.floor(ROWS / 2);
