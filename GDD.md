@@ -22,7 +22,7 @@
 
 ## Grid e Núcleo
 
-- O mapa é um grid NxM (dimensão exata a validar em playtest; ponto de partida sugerido: 9x9 ou 11x11 para caber em runs de 10-20min).
+- O mapa é um grid NxM (dimensão exata a validar em playtest; ponto de partida sugerido: 9x9 ou 11x11 para caber em runs de 10-20min). Implementado: 11x11 com células de 64px (janela pensada pra PC).
 - O **núcleo** fica no centro geométrico do grid; perder toda a sua vida encerra a run em derrota.
 - Cada torre ocupa uma célula do grid. Nem toda célula é construível — células muito próximas do núcleo podem ficar reservadas, e obstáculos podem bloquear outras.
 - Inimigos **não seguem corredores fixos**: entram pelas bordas do grid e se movem em direção ao núcleo contornando torres e obstáculos, pressionando de todos os lados ao mesmo tempo — esse é o elemento "survivor" da fórmula.
@@ -45,7 +45,7 @@ Cada torre representa uma figura mitológica, agrupada por **panteão** (grego, 
 | Atena | Dano em área circular, alcance médio | Raio |
 | Deméter | Dano em área, alcance curto, cadência rápida e dano baixo por tiro (desgaste) | Cruz |
 | Hera | Passiva — não ataca; enquanto viva no mapa, +15% de dano em TODAS as outras torres | Aura global |
-| Hades | Passiva — não ataca; retarda (-50% velocidade) inimigos dentro do seu raio | Aura local |
+| Hades | Passiva — não ataca; retarda (-35% velocidade; era -50%, reduzido após simulação mostrar que decidia a run sozinho) inimigos dentro do seu raio | Aura local |
 | Hermes | Passiva — não ataca; dobra a regeneração passiva de Favor | Aura global |
 
 **Torre extra de outro panteão (implementada antes do pivô de foco para o grego):**
@@ -54,11 +54,34 @@ Cada torre representa uma figura mitológica, agrupada por **panteão** (grego, 
 | --- | --- | --- | --- |
 | Thor | Nórdico | Dano em área, alcance curto | Cruz |
 
-O panteão egípcio e outras torres gregas adicionais ficam para depois — ver Escopo do MVP e Roadmap.
+**Panteão egípcio (implementado) — torres direcionais.** A gimmick dos egípcios é que o alcance depende da **orientação** da torre: cada um cobre um formato fixo de células relativo a pra onde está virado (ver Orientação abaixo).
+
+| Torre | Formato (virada pra direita, na coluna X) | Alvo |
+| --- | --- | --- |
+| Rá | Linha reta pra frente até a borda do mapa | Todos |
+| Hórus | Só as duas diagonais frontais, até 4 casas | Único (mais próximo), dano alto |
+| Anúbis | Cone frontal: 1, depois 3, depois 5 casas de largura | Todos |
+| Sekhmet | Pula X+1 e acerta as linhas X+2 e X+3 inteiras | Todos, cadência lenta |
+| Thoth | Bloco 3x3 centrado em X+4 (artilharia, nada perto) | Todos |
+| Sobek | Só X+1 e X+2 na mesma linha | Único, maior dano do jogo |
+| Bastet | As 3 casas encostadas à frente (frente + diagonais) | Todos, cadência rápida |
+| Ísis | Só pros lados, até 3 casas de cada lado | Todos |
+
+**Orientação das torres**: ao clicar numa célula pra construir, o jogo entra em **câmera lenta (0.5x)** e o jogador escolhe pra onde a torre fica virada — apontando o mouse pro lado desejado (ou setas/WASD) e confirmando com clique/Enter (Esc ou botão direito cancela). O alcance na orientação atual aparece em tempo real. Para os gregos (e Thor, por enquanto) a orientação é só cosmética; para egípcios — e futuramente nórdicos — define o alcance. Torres direcionais mostram uma setinha dourada na borda da célula indicando a orientação.
+
+**Limite de torres**: no máximo **10 torres** no mapa ao mesmo tempo, com contador "Torres: X/10" abaixo do menu lateral. Provisório — vai dar lugar a um sistema de "deck building" de torres.
+
+**Equipe (team builder)**: antes da run, na tela **Equipe** do menu principal, o jogador escolhe até **10 torres** pra levar — só elas aparecem no menu lateral durante o jogo. A equipe persiste entre sessões (`src/game/team.ts`) e fica fixa durante a run (salva junto no save da run). Sem nenhuma torre na equipe, "Novo Jogo" fica desabilitado.
+
+**Loja de torres**: o jogador começa só com **Zeus**; todas as outras torres são desbloqueadas permanentemente com Ambrosia na tela **Loja** (50 a 220, calibrados pela simulação pra primeira compra sair já na 1ª run — ver `TOWER_PRICES` em `src/game/meta.ts`). Torre recém-comprada entra direto na equipe se houver vaga. Torres bloqueadas aparecem na tela de Equipe esmaecidas, com o preço.
+
+**Configurações** (botão ⚙️ no menu principal, `src/game/settings.ts`): volume de música e efeitos, silenciar tudo, "Rever tutorial na próxima run" e exportar/importar save. Novas opções entram aqui.
+
+**Tutorial guiado** (`src/tutorial.ts`): na primeira run, uma caixa fixa no canto inferior direito conduz o jogador em 10 passos — núcleo, Favor, escolher torre, construir, orientação, selecionar, melhorar, bênçãos, vender/velocidade e o que fazer fora da run (Loja/Equipe/Melhorias). O elemento relevante da tela fica destacado com contorno dourado pulsante. Passos de leitura congelam o jogo e avançam com "Próximo"; passos de ação avançam sozinhos quando o jogador faz o que foi pedido (e pulam adiante se ele se adiantar). O passo de melhorar deixa o jogo correr pra juntar Favor. **"Pular tutorial" fica visível em todos os passos.** Concluído ou pulado, não aparece mais (dá pra rever pelas Configurações).
 
 **Identidade visual por torre**: além da paleta de cor, cada torre tem uma silhueta própria (não é só o mesmo boneco recolorido) — Hera usa um vestido que se alarga em camadas até a bainha, Ares tem um elmo fechado cobrindo quase o rosto todo (só a fresta dos olhos aparece, brilhando), Atena tem elmo coríntio com crista e escudo redondo, Ártemis usa túnica curta (pernas de fora) com aljava de flechas nas costas, Poseidon empunha um tridente grande de 3 pontas, Hermes tem sandálias aladas ecoando o capacete alado. Zeus, Thor, Hades e Deméter mantiveram a silhueta original (já distintas via arma/capuz/coroa).
 
-**Menu lateral de torres** (estilo BloonsTD): cada torre aparece como um ícone (recorte da cabeça/cocar da própria sprite, não um emoji genérico — mais fácil de reconhecer) + nome + um botão de interrogação que mostra, ao passar o mouse, uma descrição em linguagem direta do que a torre faz (substituindo o jargão "linha/coluna" por frases tipo "acerta todos os inimigos na sua linha e coluna de uma vez"). Dividido em duas seções, **Ativo** (as 7 torres que atacam) e **Passivo** (Hera/Hades/Hermes, que só emanam aura) — deixa claro de cara que essas três não vão disparar nada.
+**Menu lateral de torres** (estilo BloonsTD): cada torre aparece como um ícone (recorte da cabeça/cocar da própria sprite, não um emoji genérico — mais fácil de reconhecer) + nome + um botão de interrogação que mostra, ao passar o mouse, uma descrição em linguagem direta do que a torre faz (substituindo o jargão "linha/coluna" por frases tipo "acerta todos os inimigos na sua linha e coluna de uma vez"). Dividido por grupo em duas colunas: **Gregos · Ativo**, **Gregos · Passivo** (Hera/Hades/Hermes, que só emanam aura), **Nórdico** e **Egípcios · Direcionais**.
 
 **Navegação durante a run**: um botão "☰ Menu" na barra superior pausa a simulação e volta pro menu principal sem perder o progresso em memória (só não fica persistido até clicar em Salvar) — complementa Salvar/Carregar pra quem só quer sair rápido.
 
@@ -66,7 +89,9 @@ O panteão egípcio e outras torres gregas adicionais ficam para depois — ver 
 
 - Inimigos nascem nas bordas do grid, de múltiplas direções simultaneamente, aumentando em número e variedade com o tempo — estilo horda de survivor, não ondas numeradas rígidas.
 - **Escalonamento por tempo decorrido**: a cada X segundos de run, mais inimigos spawnam; cada arquétipo passa a poder aparecer a partir de um certo tempo decorrido (seleção por peso aleatório entre os arquétipos já liberados), como na curva de dificuldade de Vampire Survivors.
-- **Chefes** aparecem em marcos de tempo fixos como picos de dificuldade e fontes de recompensa maior. Implementado: um chefe (titã) aos 5min, com banner de aviso na tela. Marcos adicionais (10min, 15min) ficam para quando a run for mais longa que os 10min atuais.
+- **Chefes** aparecem em marcos de tempo fixos como picos de dificuldade e fontes de recompensa maior, sempre com banner de aviso. Implementado: **Titã aos 5:00**, **dois Titãs aos 7:30** (entrando por bordas diferentes) e o **chefe final Tifão aos 9:00**.
+- **Tifão, pai dos monstros (chefe final)**: 14.000 de vida, bem lento, invoca 2 monstros ao seu redor a cada 3s e, ao alcançar o núcleo, **não é consumido** — fica pisoteando (12 de dano a cada 2s) até ser derrotado. Barra de vida grande no topo do mapa enquanto vivo. **A run só é vencida ao derrotá-lo**: se os 10 minutos acabarem com ele vivo, a run entra em prorrogação ("DERROTE TIFÃO PARA VENCER") — spawns e música continuam no máximo. Derrotá-lo rende +150 de Ambrosia.
+- **Fase final (a partir dos 5:00)**: até aqui a cadência de spawn travava por volta de 1min45 e a dificuldade só subia pela vida dos inimigos; agora, depois dos 5 minutos, o intervalo de spawn volta a cair (até -30% no fim), a vida cresce mais rápido (+0,002·s² além da curva linear) e surgem **elites** (a partir dos 6:00, de 8% a 22% de chance): 2x vida, 1,5x dano, 2x Favor, um pouco maiores e com anel dourado pulsante.
 
 **Arquétipos de inimigo (elenco completo implementado):**
 
@@ -76,7 +101,9 @@ O panteão egípcio e outras torres gregas adicionais ficam para depois — ver 
 | Rápido | Pouco HP, atravessa defesas antes de serem reforçadas | 30s |
 | Especial (curandeiro) | Pulsa a cada poucos segundos e restaura HP de aliados próximos — prioridade de abate | 60s |
 | Tanque | Muito HP, avança bem devagar, dano alto se chegar ao núcleo | 90s |
-| Chefe (titã) | HP muito alto, spawn único num marco de tempo fixo, recompensa grande | 5min (marco fixo, não aleatório) |
+| Chefe (titã) | HP muito alto, recompensa grande | 5:00 (1) e 7:30 (2) — marcos fixos |
+| Elite | Variante reforçada de qualquer arquétipo comum (2x vida, 1,5x dano), anel dourado | 6:00 (8% → 22% de chance) |
+| Tifão (chefe final) | 14.000 de vida, invoca monstros, pisoteia o núcleo até morrer — precisa ser derrotado pra vencer | 9:00 |
 
 ## Progressão na Run
 
@@ -84,6 +111,18 @@ O panteão egípcio e outras torres gregas adicionais ficam para depois — ver 
 - **Relíquias/bênçãos**: drops aleatórios ou escolhas periódicas (ao estilo "level up" de survivor) que concedem efeitos passivos globais — ex.: +10% de dano para todas as torres de um panteão.
 - **Builds emergentes**: a combinação de torres + relíquias escolhidas numa run determina uma build diferente a cada tentativa, incentivando replay.
 - **Evolução de torre**: ao atingir certo nível, ou com certa relíquia, uma torre pode evoluir para uma forma mitológica mais poderosa (ex.: Zeus evolui para uma forma com trovão do Olimpo).
+
+**Implementado:**
+
+- **Upgrade de torre**: clicar numa torre construída mostra "⬆️ Nível N — custo" ao lado de Vender (atalhos: U melhora, V vende). 4 níveis: os níveis 2 e 3 são melhorias comuns (dano x1.3 / x1.65, cadência um pouco mais rápida), e o **nível 4 é a forma mitológica** (dano x2.2, cadência -28%), com nome próprio (ex.: Zeus Olímpico, Anúbis Juiz), brilho dourado e faíscas orbitando. Custos: 20 / 40 / 80 Favor. Passivas também sobem: Hera +5% de dano por nível, Hades +0.5 de raio e +5% de lentidão, Hermes +50% de regeneração. Bolinhas douradas sob a torre mostram o nível (estrela = evoluída). Vender devolve 50% de tudo que foi investido (construção + upgrades).
+- **Bênçãos**: a cada marco de abates (10, 25, 45, 70, 100, 135... — o intervalo cresce 5 a cada bênção) o jogo **congela** e oferece 3 bênçãos; a escolhida vale até o fim da run e aparece numa lista na barra lateral. Cada carta sorteia primeiro a **raridade** — **comum 60%, incomum 30%, rara 10%** — e depois uma bênção dela (se a raridade não tiver mais nada disponível, cai pra outra). Cartas mostram a raridade (cinza / verde / dourado com brilho). Elenco (`src/game/blessings.ts`):
+  - *Comuns*: Fúria do Olimpo / Ira do Deserto / Fúria de Asgard (+15% de dano por panteão — só se a equipe tiver aquele panteão), Mãos Ligeiras (+8% cadência), Golpe dos Deuses (+7% crítico), Ar Pesado (inimigos -7% velocidade), Fluxo Divino (+0.4 Favor/s), Oferenda (+40 Favor), Muralha Sagrada (cura 30 do núcleo, só se ferido).
+  - *Incomuns*: Dízimo do Templo (-15% no custo de construir/melhorar), Núcleo Abençoado (+25 de vida máxima), Colheita de Almas (+50% de Favor por abate), Cajado de Asclépio (núcleo regenera 0.5/s), Golpe Esmagador (crítico x3 — só se já houver chance de crítico), Ira Crescente (+1,5% de dano por bênção possuída).
+  - *Raras*: Projéteis Múltiplos (torres de alvo único acertam +1 inimigo), Ascensão (todas as torres sobem 1 nível de graça), Raio em Cadeia (15% de chance do acerto saltar pra um inimigo próximo com 40% do dano — desenhado em azul), Sentença de Thanatos (inimigos comuns abaixo de 10% de vida morrem na hora).
+- **Balanceamento por simulação** (`npm run sim`, código em `tools/sim/`): roda o `Game` real em Node (DOM falso) com um bot que posiciona torres pelo "mapa de tráfego" (por onde os inimigos passam), constrói a equipe na ordem, melhora sempre a torre de menor nível e escolhe bênçãos por preferência. Grupos: `inicio` (economia da Loja), `times` (fim de run) e `bencaos` (impacto de cada bênção não-comum). Use ≥30 runs (`npm run sim -- times 30`) pra decidir — com 12 a variação é grande.
+  - Referência atual: só Zeus ~55s / ~58 Ambrosia; Zeus+Ártemis ~1:27 / ~145; gregos completos vencem ~60% (97% chegam ao Tifão); time misto grego/egípcio ~43%; egípcios + passivas gregas ~10%. Upgrades sozinhos ou bênçãos sozinhas não vencem.
+  - Ajustes motivados pela simulação: Hades (-50% → -35%), evolução (x2.6 → x2.2), Ira Crescente (3% → 1,5%), Raio em Cadeia (25%/50% → 15%/40%), Sentença de Thanatos (15% → 10%), dois buffs nos egípcios e toda a curva da fase final.
+  - *Achado estrutural*: por volta dos 6min todas as torres já estão no nível máximo — a partir daí o jogador só cresce por bênçãos. Um destino de Favor pro fim da run (ex.: níveis além da evolução, consumíveis) ajudaria. Egípcios seguem abaixo dos gregos no fim de run.
 
 ## Meta-progressão
 
@@ -118,8 +157,8 @@ As torres passivas (Hera, Hades, Hermes) ficam de fora da lista de "Duplicata" �
 
 - **Duração alvo**: 10 a 20 minutos por run.
 - **Condição de derrota**: a vida do núcleo chega a zero.
-- **Condição de vitória**: sobreviver até o marco de tempo final (ex.: 20min) e/ou derrotar um chefe final.
-- **Eventos especiais**: chefe aos 5min (implementado — ver Inimigos e Ondas); ondas de elite e eventos de risco/recompensa (ex.: uma onda extra forte em troca de recompensa maior) ainda não implementados.
+- **Condição de vitória**: sobreviver aos 10 minutos **e** derrotar o chefe final (Tifão, que surge aos 9:00). Com ele vivo no fim do tempo, a run entra em prorrogação.
+- **Eventos especiais**: chefes aos 5:00, 7:30 e 9:00 e fase final com elites (implementados — ver Inimigos e Ondas); eventos de risco/recompensa (ex.: uma onda extra forte em troca de recompensa maior) ainda não implementados.
 - **Ao fim** (vitória ou derrota): tela de resumo com estatísticas da run (tempo sobrevivido, inimigos derrotados, torres usadas) + recursos de meta-progressão ganhos.
 - **Controle de velocidade**: botões 1x/2x/4x aceleram a simulação (tempo de jogo passa mais rápido, sem afetar a física/balanceamento — é o mesmo dt, só multiplicado). Pensado pra testar builds e pra quem já manja do jogo não esperar os minutos iniciais mais parados.
 - **Menu principal**: tela inicial com Novo Jogo / Carregar Jogo — ao clicar em qualquer um dos dois, vai direto pra tela do jogo. Durante a run dá pra Salvar a qualquer momento; não há botão de voltar ao menu no meio do jogo (redundante com Salvar/Carregar) — só ao fim da run, na tela de resultado.
@@ -140,9 +179,12 @@ As torres passivas (Hera, Hades, Hermes) ficam de fora da lista de "Duplicata" �
 - **Pré-visualização de alcance**: ao passar o mouse numa célula válida com uma torre selecionada, a área que ela cobriria ali (linha/coluna, cruz, losango ou raio circular, dependendo do padrão) aparece em laranja translúcido — mesma geometria usada pela torre de verdade, sem precisar construir pra descobrir. Junto, um sprite "fantasma" semitransparente da própria torre (na pose de descanso) mostra como ela vai ficar naquela célula.
 - **Áudio (implementado)**: 100% procedural via Web Audio API, mesma filosofia das sprites — sem nenhum arquivo de áudio, gerado inteiramente por código no cliente (`src/game/audio.ts`).
   - **Efeitos sonoros**: bipes curtos (osciladores + envelope de volume) pra construir torre, vender, atirar, acertar, abater inimigo, chefe nascendo, núcleo tomando dano, vitória, derrota, compra de melhoria e cliques de UI.
-  - **Trilha ambiente**: um drone grave contínuo + notas soltas aleatórias numa escala pentatônica, tocando em intervalos — textura generativa, não uma composição de verdade (limite real de música gerada só por código, como já era esperado). Toca durante a run, para no menu e na tela de Melhorias.
+  - **Trilhas de fundo**: composições de verdade tocadas por um sequenciador próprio (agenda notas no relógio do Web Audio com lookahead).
+    - *Run*: progressão Am–G–F–E / Am–Dm–F–E com pad de dentes-de-serra filtradas, baixo, "lira" (triângulo + harmônico, com eco) e tambor de moldura (doum/tek). **Acelera conforme a run avança** — de 92 a 168 BPM — e vai adensando: estalos contínuos a partir de ~35% da run, baixo pulsando a partir de ~45%, melodia em toda volta da metade em diante, doum extra e semicolcheias no clímax (fim da run).
+    - *Menu*: calma, 64 BPM, sem percussão, acordes abertos com sétima/nona (Am9 Fmaj7 Cmaj7 G6 | Dm9 Am9 Fmaj7 Esus4) e lira esparsa. Toca em todas as telas fora da run (menu, Loja, Equipe, Melhorias, Configurações).
+  - **Volume**: controles separados de **Música** e **Efeitos sonoros** (0-100%) + "Silenciar tudo" na tela de Configurações; durante a run ainda há um botão 🔊/🔇 de atalho.
+  - **Volume dos tiros**: o tiro é um "fwip" curto em senoide (não mais onda quadrada aguda) e tiros/acertos têm intervalo mínimo entre si, pra não virar metralhadora com muitas torres.
   - **Desbloqueio de áudio**: navegadores exigem um gesto do usuário antes de tocar qualquer som — o `AudioContext` só é criado no primeiro clique em Novo Jogo/Carregar/Melhorias.
-  - **Botão de mudo** (🔊/🔇) disponível no menu e durante a run.
 
 **Sprites são geradas por código, não por arquivos de imagem** — cada sprite é uma grade 16x16 definida em TypeScript (formas básicas + pixels à mão para detalhes), com contorno automático e pré-renderização única numa canvas offscreen. Mantém o deploy 100% estático e o bundle minúsculo, sem pipeline de assets.
 
@@ -162,7 +204,8 @@ Tudo implementado via transformações de canvas (`translate`/`rotate`/`scale`) 
 - **Alvo de deploy**: site estático hospedado no GitHub Pages — sem backend, sem servidor de jogo.
 - **Stack decidida**: TypeScript + Vite (build estático), renderização em Canvas 2D puro (sem motor externo).
 - **Persistência (implementado, parcial)**: `localStorage`, um slot único, salva manualmente pelo botão "Salvar" — serializa a run em andamento inteira (torres, inimigos, núcleo, Favor, tempo decorrido, chefe já apareceu ou não). "Carregar Jogo" no menu reconstrói a partir daí.
-  - *Pendente*: isso ainda é save da **run em andamento**, não da meta-progressão (que nem existe ainda — ver Fase 2 no roadmap). Export/import como texto/arquivo (JSON) também não foi implementado — hoje o save só funciona no mesmo navegador/dispositivo.
+  - Meta-progressão, equipe e configurações também ficam no `localStorage`, cada um com sua chave.
+  - **Export/import (implementado)**: em Configurações, "Exportar save" baixa um JSON (`myth-td-save-AAAA-MM-DD.json`, formato `{ format: "myth-td-save", version, exportedAt, data: { meta, team, run, settings } }`) com todo o progresso; "Importar save" valida o arquivo, pede confirmação, substitui tudo e recarrega a página (`src/game/backup.ts`).
 - Sem conta de usuário e sem dados enviados a servidores — toda a lógica do jogo roda no cliente.
 
 ## Escopo do MVP e Roadmap
