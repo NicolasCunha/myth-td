@@ -13,6 +13,7 @@ interface Step {
   target?: string; // seletor CSS do elemento destacado
   advance: "next" | TutorialEvent;
   pause: boolean; // congela a simulação enquanto o passo está aberto
+  onEnter?: (hooks: TutorialHooks) => void; // ação ao abrir o passo
 }
 
 const STEPS: Step[] = [
@@ -60,10 +61,11 @@ const STEPS: Step[] = [
   },
   {
     title: "Melhore a torre",
-    text: "No cartão, use <b>⬆️ Melhorar</b> (ou a tecla <b>U</b>). Passe o mouse no botão pra ver como os status ficam no próximo nível. Cada nível aumenta dano e velocidade, e o 4º desperta a <b>forma mitológica</b>. Se faltar Favor, espere — o jogo segue em câmera lenta. (Fechou o cartão? É só clicar na torre de novo.)",
+    text: "No cartão, use <b>⬆️ Melhorar</b> (ou a tecla <b>U</b>). Passe o mouse no botão pra ver como os status ficam no próximo nível. Cada nível aumenta dano e velocidade, e o 4º desperta a <b>forma mitológica</b>. Os deuses te deram o Favor que faltava pra este primeiro upgrade. (Fechou o cartão? É só clicar na torre de novo.)",
     target: "#tower-popover",
     advance: "towerUpgraded",
-    pause: false,
+    pause: true,
+    onEnter: (hooks) => hooks.grantUpgradeFavor(),
   },
   {
     title: "Bênçãos",
@@ -91,6 +93,7 @@ const HIGHLIGHT_CLASS = "tutorial-highlight";
 export interface TutorialHooks {
   setPaused: (paused: boolean) => void;
   onFinish: () => void; // concluído ou pulado — não mostrar de novo
+  grantUpgradeFavor: () => void; // garante Favor pro upgrade do passo "Melhore a torre"
 }
 
 export class Tutorial {
@@ -160,6 +163,7 @@ export class Tutorial {
   private render(): void {
     const step = STEPS[this.index];
     this.hooks.setPaused(step.pause);
+    step.onEnter?.(this.hooks);
 
     this.highlighted?.classList.remove(HIGHLIGHT_CLASS);
     this.highlighted = step.target ? document.querySelector(step.target) : null;

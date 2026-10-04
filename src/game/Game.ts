@@ -474,6 +474,19 @@ export class Game {
     }
   }
 
+  // Tutorial: completa o Favor que falta pro próximo nível da torre
+  // selecionada (ou da primeira, se nenhuma estiver) — o jogador faz o
+  // primeiro upgrade na hora, sem esperar.
+  grantUpgradeFavor(): void {
+    const tower = this.selectedTower ?? this.towers[0];
+    if (!tower) return;
+    const cost = this.nextUpgradeCost(tower);
+    if (cost === null || this.favor >= cost) return;
+    this.favor = cost;
+    this.updateHud();
+    this.refreshSelectedInfo();
+  }
+
   // Fecha o cartão da torre selecionada (e sai da câmera lenta).
   deselectTower(): void {
     if (this.selectedTower) this.selectTower(null);

@@ -573,6 +573,7 @@ window.addEventListener("keydown", (e) => {
 const tutorial = new Tutorial({
   setPaused: (paused) => game.setExternalPause(paused),
   onFinish: () => updateSettings({ tutorialDone: true }),
+  grantUpgradeFavor: () => game.grantUpgradeFavor(),
 });
 
 menuNewBtn.addEventListener("click", () => {
