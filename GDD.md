@@ -67,7 +67,19 @@ Cada torre representa uma figura mitológica, agrupada por **panteão** (grego, 
 | Bastet | As 3 casas encostadas à frente (frente + diagonais) | Todos, cadência rápida |
 | Ísis | Só pros lados, até 3 casas de cada lado | Todos |
 
-**Orientação das torres**: ao clicar numa célula pra construir, o jogo entra em **câmera lenta (0.5x)** e o jogador escolhe pra onde a torre fica virada — apontando o mouse pro lado desejado (ou setas/WASD) e confirmando com clique/Enter (Esc ou botão direito cancela). O alcance na orientação atual aparece em tempo real. Para os gregos (e Thor, por enquanto) a orientação é só cosmética; para egípcios — e futuramente nórdicos — define o alcance. Torres direcionais mostram uma setinha dourada na borda da célula indicando a orientação.
+**Panteão nórdico (implementado) — direcionais com efeitos de status.** Se a identidade egípcia é o *formato* do alcance, a nórdica é o *efeito*: também usam a orientação, e cada golpe aplica um status. Thor (o veterano, de antes do pivô pro grego) segue sem orientação.
+
+| Torre | Alcance (virada pra direita) | Alvo | Efeito |
+| --- | --- | --- | --- |
+| Fenrir | 3 casas encostadas à frente + a 2ª reta | Todos | **Frenesi**: cada ataque com alvo acelera o próximo (+12% por acúmulo, até 6 = +72%; esfria após 2s sem alvo). **Sangramento**: 30% do golpe por segundo, 3s |
+| Odin | Linha reta à frente até a borda (Gungnir perfura) | Todos | **Marca**: +30% de dano de todas as torres no alvo por 4s |
+| Skadi | Da 2ª à 6ª casa à frente (flechas atravessam) | Todos | **Congelamento**: -45% de velocidade por 2.5s |
+| Loki | 4 casas **pra trás** | Todos | **Empurrão**: meia casa pra longe do núcleo (recalcula a rota; chefes imunes) |
+| Freya | — (passiva) | — | Torres nas **8 casas em volta** dela causam +25% de dano (+5%/nível) — sinergia de posicionamento |
+
+Primeira versão tinha Odin e Skadi em alvo único; na simulação o time nórdico morria aos ~2min, e o diagnóstico mostrou que o problema era o bot empilhar as direcionais na mesma fileira (corrigido — ver Balanceamento por simulação) somado a pouco dano em área; Odin e Skadi passaram a perfurar. Referência: nórdicos + passivas gregas vencem ~33% (gregos ~43%, egípcios ~10%, time misto ~93% — combinar linhas gregas com formatos egípcios está forte; a reavaliar em playtest).
+
+**Orientação das torres**: ao clicar numa célula pra construir, o jogo entra em **câmera lenta (0.5x)** e o jogador escolhe pra onde a torre fica virada — apontando o mouse pro lado desejado (ou setas/WASD) e confirmando com clique/Enter (Esc ou botão direito cancela). O alcance na orientação atual aparece em tempo real. Para os gregos e Thor a orientação é só cosmética; para egípcios e nórdicos define o alcance. Torres direcionais mostram uma setinha dourada na borda da célula indicando a orientação.
 
 **Limite de torres**: no máximo **10 torres** no mapa ao mesmo tempo, com contador "Torres: X/10" abaixo do menu lateral. Provisório — vai dar lugar a um sistema de "deck building" de torres.
 
