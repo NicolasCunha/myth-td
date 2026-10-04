@@ -51,11 +51,11 @@ export const OVERTIME_BANNER = "DERROTE TIFÃO PARA VENCER";
 // A partir de LATE_GAME_START a pressão sobe: spawns mais frequentes, vida
 // crescendo mais rápido e elites.
 const LATE_GAME_START = 5 * 60;
-const LATE_SPAWN_SPEEDUP = 0.3; // no fim da run o intervalo de spawn fica 30% menor
-const LATE_HP_GROWTH = 0.002; // vida extra = LATE_HP_GROWTH * (segundos depois do início da fase)²
+const LATE_SPAWN_SPEEDUP = 0.2; // no fim da run o intervalo de spawn fica 20% menor
+const LATE_HP_GROWTH = 0.0012; // vida extra = LATE_HP_GROWTH * (segundos depois do início da fase)²
 const ELITE_START = 6 * 60;
 const ELITE_CHANCE_START = 0.08;
-const ELITE_CHANCE_END = 0.22;
+const ELITE_CHANCE_END = 0.15;
 export const ELITE_HP_MULT = 2;
 export const ELITE_DAMAGE_MULT = 1.5;
 export const ELITE_FAVOR_MULT = 2;
@@ -103,9 +103,9 @@ export function enemyStatsFor(kind: EnemyKind, elapsedSec: number) {
   const baseSpeed = (42 + Math.min(elapsedSec * 0.25, 38)) * SCALE;
   switch (kind) {
     case "fast":
-      return { hp: baseHp * 0.55, speed: baseSpeed * 1.9, damage: 5, favor: 4 };
+      return { hp: baseHp * 0.45, speed: baseSpeed * 1.9, damage: 5, favor: 4 };
     case "tank":
-      return { hp: baseHp * 3.5, speed: baseSpeed * 0.55, damage: 14, favor: 8 };
+      return { hp: baseHp * 3, speed: baseSpeed * 0.55, damage: 14, favor: 8 };
     case "healer":
       return { hp: baseHp * 0.9, speed: baseSpeed * 0.9, damage: 4, favor: 6 };
     default:

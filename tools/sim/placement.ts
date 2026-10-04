@@ -1,25 +1,52 @@
 // Posicionamento do bot: um "mapa de tráfego" conta quantas trajetórias
-// (borda -> núcleo, em linha reta — como os inimigos andam) passam por cada
+// (borda -> núcleo, do jeito que cada tipo de inimigo anda) passam por cada
 // célula; cada torre vai pra posição/orientação que cobre mais tráfego.
 import { towerRangeDef, shapeCells, isDirectional } from "../../src/game/entities";
-import { CORE_COL, CORE_ROW, COLS, ROWS, inBounds } from "../../src/game/grid";
+import { CELL, CORE_COL, CORE_ROW, COLS, ROWS, inBounds } from "../../src/game/grid";
+import { gridPathOptions, gridPathVia } from "../../src/game/pathing";
 import type { TowerKind, Facing } from "../../src/game/types";
 
 const traffic: number[][] = Array.from({ length: ROWS }, () => new Array<number>(COLS).fill(0));
+
+// Mistura de spawn (pesos de pickEnemyKind depois de 1min30): grunt 1,
+// rápido 0.6, curandeiro 0.25, tanque 0.2 — ~70% andam em "L" pelo grid,
+// ~30% (rápidos) em linha reta. Chefes ficam de fora (raros).
+const GRID_SHARE = 1.45 / 2.05;
 
 (function buildTraffic() {
   const edges: [number, number][] = [];
   for (let c = 0; c < COLS; c++) edges.push([c, 0], [c, ROWS - 1]);
   for (let r = 1; r < ROWS - 1; r++) edges.push([0, r], [COLS - 1, r]);
+  const add = (cells: Set<number>, weight: number) => {
+    for (const k of cells) traffic[k % 100][Math.floor(k / 100)] += weight;
+  };
   for (const [c, r] of edges) {
-    const seen = new Set<number>();
+    // Linha reta (rápidos).
+    const straight = new Set<number>();
     for (let t = 0; t <= 1; t += 0.01) {
       const cc = Math.floor(c + 0.5 + (CORE_COL - c) * t);
       const rr = Math.floor(r + 0.5 + (CORE_ROW - r) * t);
       if (cc === CORE_COL && rr === CORE_ROW) break;
-      seen.add(cc * 100 + rr);
+      straight.add(cc * 100 + rr);
     }
-    for (const k of seen) traffic[k % 100][Math.floor(k / 100)] += 1;
+    add(straight, 1 - GRID_SHARE);
+    // Rotas pelo grid (L/Z): todas as opções que o jogo sorteia, com o mesmo peso.
+    const options = gridPathOptions(c, r);
+    for (const { verticalFirst, turnDepth } of options) {
+      const points = gridPathVia(c, r, verticalFirst, turnDepth).map((p) => [Math.floor(p.x / CELL), Math.floor(p.y / CELL)] as [number, number]);
+      const cells = new Set<number>();
+      for (let i = 0; i < points.length; i++) {
+        const [c1, r1] = points[i];
+        const [c0, r0] = i === 0 ? points[0] : points[i - 1];
+        const steps = Math.max(Math.abs(c1 - c0), Math.abs(r1 - r0));
+        for (let s = 0; s <= steps; s++) {
+          const cc = c0 + Math.sign(c1 - c0) * s;
+          const rr = r0 + Math.sign(r1 - r0) * s;
+          if (cc !== CORE_COL || rr !== CORE_ROW) cells.add(cc * 100 + rr);
+        }
+      }
+      add(cells, GRID_SHARE / options.length);
+    }
   }
 })();
 

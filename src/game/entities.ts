@@ -271,6 +271,7 @@ export class Enemy {
   elite = false; // variante reforçada da fase final da run (contorno dourado)
   summonTimer = 2; // só Tifão: tempo até invocar os próximos monstros
   stompTimer = 0; // só Tifão: tempo até o próximo pisão no núcleo
+  waypoints: { x: number; y: number }[] = []; // rota pelo grid (ver pathing.ts); vazia = linha reta até o núcleo
 
   constructor(
     kind: EnemyKind,

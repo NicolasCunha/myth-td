@@ -53,6 +53,7 @@ import { HIT_FLASH_DURATION, DEATH_DURATION, CORE_HIT_FLASH_DURATION, DAMAGE_POP
 import { hadesSlowFactorAt, heraDamageMultiplier, hermesRegenMultiplier, hadesSlowMultiplier, hadesRadiusCells } from "./auras";
 import { acquireTargets, closestEnemyTo } from "./targeting";
 import { GameRenderer } from "./renderer";
+import { followsGrid, gridPath, advanceAlong } from "./pathing";
 import {
   POWERS,
   powerDef,
@@ -431,6 +432,7 @@ export class Game {
       const push = (isBoss(enemy.kind) ? TIDAL_BOSS_PUSH_CELLS : TIDAL_PUSH_CELLS) * CELL;
       enemy.x = Math.max(min, Math.min(COLS * CELL - min, enemy.x + (dx / dist) * push));
       enemy.y = Math.max(min, Math.min(ROWS * CELL - min, enemy.y + (dy / dist) * push));
+      this.assignPath(enemy); // fora da rota: recalcula o "L" a partir de onde parou
     }
     this.powerEffects.push({ kind: "tidalWave", x: core.x, y: core.y, radius: Math.max(COLS, ROWS) * CELL * 0.6, age: 0, ttl: 0.6 });
   }
@@ -756,6 +758,7 @@ export class Game {
       const enemy = new Enemy(e.kind, e.x * k, e.y * k, e.hp, e.speed * k, e.damage, e.favorReward, e.radius * k);
       enemy.hpLeft = e.hpLeft;
       enemy.elite = e.elite ?? false;
+      this.assignPath(enemy);
       return enemy;
     });
     this.shots = [];
@@ -923,7 +926,14 @@ export class Game {
       ? new Enemy(kind, x, y, stats.hp * ELITE_HP_MULT, stats.speed, stats.damage * ELITE_DAMAGE_MULT, stats.favor * ELITE_FAVOR_MULT, ENEMY_RADIUS[kind] * ELITE_SIZE_MULT)
       : new Enemy(kind, x, y, stats.hp, stats.speed, stats.damage, stats.favor, ENEMY_RADIUS[kind]);
     enemy.elite = elite;
+    this.assignPath(enemy);
     this.enemies.push(enemy);
+  }
+
+  // Rota pelo grid (L/Z sorteado, ver pathing.ts) pros que andam em fileira;
+  // os demais vão em linha reta.
+  private assignPath(enemy: Enemy): void {
+    enemy.waypoints = followsGrid(enemy.kind) ? gridPath(enemy.x, enemy.y) : [];
   }
 
   // Marco de chefe: um ou mais chefes entrando por bordas diferentes.
@@ -1036,13 +1046,12 @@ export class Game {
         continue; // inimigo é consumido ao atingir o núcleo
       }
 
-      // Movimento em linha reta até o núcleo (Hades retarda quem está no seu
-      // raio; Cronos retarda todos). Contornar torres/obstáculos é uma
-      // questão aberta do GDD.
+      // Movimento até o núcleo: grunts/tanques/curandeiros seguem a rota em "L"
+      // pelo grid, os demais vão em linha reta (ver pathing.ts). Hades retarda
+      // quem está no seu raio; Cronos retarda todos. Torres não bloqueiam.
       const chronosMult = this.chronosTimer > 0 ? CHRONOS_SPEED_MULT : 1;
       const slow = hadesSlowFactorAt(this.towers, enemy.x, enemy.y) * bonuses.enemySpeedMult * chronosMult;
-      enemy.x += (dx / dist) * enemy.speed * slow * dt;
-      enemy.y += (dy / dist) * enemy.speed * slow * dt;
+      advanceAlong(enemy, enemy.waypoints, core, enemy.speed * slow * dt);
 
       survivors.push(enemy);
     }
