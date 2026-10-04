@@ -116,6 +116,7 @@ export class GameRenderer {
       ctx.fillRect(-CELL / 2, -CELL / 2, CELL, CELL);
     }
     ctx.restore();
+    this.renderCoreHpBar(core.x, core.y, hpRatio);
 
     // towers — balanço de respiração no corpo; o braço gira de verdade em
     // volta do ombro: recua, golpeia rápido e volta à pose de descanso.
@@ -265,6 +266,25 @@ export class GameRenderer {
       ctx.fillText("◷ Câmera lenta — escolha a orientação · clique confirma · Esc cancela", w / 2, h - 12);
       ctx.restore();
     }
+  }
+
+  // Barra de vida do núcleo, embaixo do orbe (fixa — não pulsa nem treme
+  // com a sprite). Verde -> amarelo -> vermelho conforme a vida cai.
+  private renderCoreHpBar(cx: number, cy: number, ratio: number): void {
+    const ctx = this.ctx;
+    const r = Math.max(0, Math.min(1, ratio));
+    const w = CELL * 0.72;
+    const h = 6;
+    const x = cx - w / 2;
+    const y = cy + CELL / 2 - 12;
+    ctx.save();
+    ctx.fillStyle = "#14161c";
+    ctx.fillRect(x - 2, y - 2, w + 4, h + 4);
+    ctx.fillStyle = "#3a1414";
+    ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = r > 0.6 ? "#7fd14a" : r > 0.3 ? "#f2c879" : "#e05a5a";
+    ctx.fillRect(x, y, w * r, h);
+    ctx.restore();
   }
 
   // Setinha triangular encostada na borda da célula, apontando pra `facing`.

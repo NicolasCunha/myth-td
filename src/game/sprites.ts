@@ -195,10 +195,11 @@ function emptySprite(): HTMLCanvasElement {
   return rasterize(emptyGrid());
 }
 
-// Núcleo: orbe dourado radiante sobre um pedestal.
+// Núcleo: orbe dourado radiante. Sem pedestal: no lugar dele o renderer
+// desenha a barra de vida do núcleo (o pedestal parecia uma barra que nunca
+// diminuía).
 function buildCoreSprite(): HTMLCanvasElement {
   const g = emptyGrid();
-  rect(g, 5, 13, 10, 15, GOLD_DARK);
   circle(g, 8, 7, 5, CORE_EDGE);
   circle(g, 8, 7, 4, CORE_OUTER);
   circle(g, 8, 7, 3, CORE_MID);
