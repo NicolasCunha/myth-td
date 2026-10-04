@@ -73,7 +73,7 @@ Cada torre representa uma figura mitológica, agrupada por **panteão** (grego, 
 
 **Equipe (team builder)**: antes da run, na tela **Equipe** do menu principal, o jogador escolhe até **10 torres** pra levar — só elas aparecem no menu lateral durante o jogo. A equipe persiste entre sessões (`src/game/team.ts`) e fica fixa durante a run (salva junto no save da run). Sem nenhuma torre na equipe, "Novo Jogo" fica desabilitado.
 
-**Loja de torres**: o jogador começa só com **Zeus**; todas as outras torres são desbloqueadas permanentemente com Ambrosia na tela **Loja** (50 a 220, calibrados pela simulação pra primeira compra sair já na 1ª run — ver `TOWER_PRICES` em `src/game/meta.ts`). Torre recém-comprada entra direto na equipe se houver vaga. Torres bloqueadas aparecem na tela de Equipe esmaecidas, com o preço.
+**Loja de torres**: o jogador começa com **Zeus e Ares** (Ares entrou como inicial depois que a 1ª run só com Zeus se mostrou curta demais — ~53s / ~55 Ambrosia; com os dois, ~1:30 / ~150); todas as outras torres são desbloqueadas permanentemente com Ambrosia na tela **Loja** (50 a 220, calibrados pela simulação pra primeiras compras saírem já na 1ª run — ver `TOWER_PRICES` em `src/game/meta.ts`). Torre recém-comprada entra direto na equipe se houver vaga. Torres bloqueadas aparecem na tela de Equipe esmaecidas, com o preço.
 
 **Configurações** (botão ⚙️ no menu principal, `src/game/settings.ts`): volume de música e efeitos, silenciar tudo, "Rever tutorial na próxima run" e exportar/importar save. Novas opções entram aqui.
 

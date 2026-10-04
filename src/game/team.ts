@@ -7,8 +7,8 @@ export const TEAM_SIZE = 10;
 
 export const TEAM_KEY = "myth-td-team-v1";
 
-// Equipe inicial: só Zeus, a única torre liberada de início (ver Loja em meta.ts).
-const DEFAULT_TEAM: TowerKind[] = ["zeus"];
+// Equipe inicial: Zeus e Ares, as torres liberadas de início (ver Loja em meta.ts).
+const DEFAULT_TEAM: TowerKind[] = ["zeus", "ares"];
 
 // `unlocked` = torres que o jogador já possui; qualquer outra coisa salva
 // (tipo desconhecido, duplicado, torre não comprada) é descartada.

@@ -39,6 +39,7 @@ console.log(`${runs} runs por cenário\n`);
 if (group === "todos" || group === "inicio") {
   console.log("— Começo do jogo (economia da Loja) —");
   report("Só Zeus", ["zeus"]);
+  report("Zeus + Ares (inicial)", ["zeus", "ares"]);
   report("Zeus + Ártemis", ["zeus", "artemis"]);
   report("Zeus + Ártemis + Deméter", ["zeus", "artemis", "demeter"]);
   console.log();

@@ -250,18 +250,18 @@ const POWER_UNLOCKS: { upgrade: UpgradeId; power: PowerId }[] = [
 export const META_KEY = "myth-td-meta-v1";
 
 // --- Loja de torres ---
-// Só Zeus vem liberado; o resto é desbloqueado permanentemente com Ambrosia.
+// Zeus e Ares vêm liberados; o resto é desbloqueado permanentemente com Ambrosia.
 // Preços calibrados com simulação headless (bot que constrói/melhora/escolhe
-// bênçãos): run só com Zeus rende ~55 Ambrosia (compra Ártemis na 1ª run),
-// Zeus+Ártemis ~135, 3 torres ~180 — o elenco grego completo sai em ~6-8 runs.
+// bênçãos): a 1ª run (Zeus + Ares) dura ~1:30 e rende ~150 Ambrosia — já compra
+// Ártemis e Deméter; 3-4 torres rendem ~170+ e o elenco grego sai em ~5-7 runs.
 // Hades é o mais caro do tier grego por ser a torre mais impactante.
-export const STARTER_TOWERS: readonly TowerKind[] = ["zeus"];
+export const STARTER_TOWERS: readonly TowerKind[] = ["zeus", "ares"];
 
 export const TOWER_PRICES: Record<TowerKind, number> = {
   zeus: 0,
   artemis: 50,
   demeter: 60,
-  ares: 80,
+  ares: 0, // inicial
   poseidon: 90,
   athena: 110,
   hermes: 160,
