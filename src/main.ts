@@ -961,6 +961,23 @@ function previewHtml(lines: string[]): string {
   return `<span class="blessing-preview">${lines.map((l) => `<span>${l}</span>`).join("")}</span>`;
 }
 
+// Bênção escolhida: clarão + raios girando + ícone e nome saltando, na cor
+// da raridade (o som vem do Game, junto). Some sozinho depois da animação.
+function playBlessingBurst(id: BlessingId): void {
+  const def = blessingDef(id);
+  const el = document.createElement("div");
+  el.className = `blessing-burst rarity-${def.rarity}`;
+  el.innerHTML = `
+    <div class="burst-rays"></div>
+    <div class="burst-content">
+      <span class="burst-icon">${def.icon}</span>
+      <span class="burst-name">${def.name}</span>
+      <span class="burst-rarity">${RARITY_LABELS[def.rarity]}</span>
+    </div>`;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 1600);
+}
+
 function showBlessingOffer(choices: BlessingId[]): void {
   blessingChoicesEl.innerHTML = choices
     .map((id) => {
@@ -978,6 +995,7 @@ function showBlessingOffer(choices: BlessingId[]): void {
   for (const btn of blessingChoicesEl.querySelectorAll<HTMLButtonElement>("[data-blessing]")) {
     btn.addEventListener("click", () => {
       blessingOverlay.classList.remove("visible");
+      playBlessingBurst(btn.dataset.blessing as BlessingId);
       game.chooseBlessing(btn.dataset.blessing as BlessingId);
     });
   }

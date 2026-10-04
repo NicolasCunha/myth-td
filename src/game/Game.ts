@@ -28,6 +28,7 @@ import { NO_META_MODIFIERS, type MetaModifiers } from "./meta";
 import type { AudioEngine } from "./audio";
 import {
   blessingThreshold,
+  blessingDef,
   rollBlessings,
   OFFERING_FAVOR,
   SACRED_WALL_HEAL,
@@ -497,7 +498,7 @@ export class Game {
     this.blessingsTaken += 1;
     this.pendingBlessing = null;
     this.lastTs = performance.now(); // não conta o tempo parado na escolha
-    this.audio?.purchase();
+    this.audio?.blessingChosen(blessingDef(id).rarity);
     this.onBlessingsChanged({ ...this.blessings });
     this.emitBonuses();
     this.updateHud();

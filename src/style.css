@@ -1485,3 +1485,106 @@ canvas {
   border: none;
   font-weight: 600;
 }
+
+
+/* --- Efeito ao ganhar uma bênção (clarão + raios + ícone saltando) --- */
+
+.blessing-burst {
+  --burst: 216, 243, 255;
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  animation: burst-flash 1.5s ease-out forwards;
+}
+
+.blessing-burst.rarity-uncommon {
+  --burst: 111, 214, 162;
+}
+
+.blessing-burst.rarity-rare {
+  --burst: 255, 215, 94;
+}
+
+.burst-rays {
+  position: absolute;
+  width: 160vmax;
+  height: 160vmax;
+  background: repeating-conic-gradient(rgba(var(--burst), 0.28) 0deg 8deg, transparent 8deg 24deg);
+  mask-image: radial-gradient(circle, black 0%, transparent 55%);
+  -webkit-mask-image: radial-gradient(circle, black 0%, transparent 55%);
+  animation: burst-rays 1.5s ease-out forwards;
+}
+
+.burst-content {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  animation: burst-pop 1.5s cubic-bezier(0.2, 1.4, 0.4, 1) forwards;
+}
+
+.burst-icon {
+  font-size: 72px;
+  filter: drop-shadow(0 0 18px rgba(var(--burst), 0.9));
+}
+
+.burst-name {
+  font-size: 28px;
+  font-weight: 700;
+  color: rgb(var(--burst));
+  text-shadow: 0 0 14px rgba(var(--burst), 0.8), 0 2px 0 #0b0e14;
+}
+
+.burst-rarity {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #e8e6df;
+  opacity: 0.85;
+}
+
+@keyframes burst-flash {
+  0% {
+    background: radial-gradient(circle, rgba(var(--burst), 0.55) 0%, rgba(var(--burst), 0) 60%);
+  }
+  100% {
+    background: radial-gradient(circle, rgba(var(--burst), 0) 0%, rgba(var(--burst), 0) 60%);
+  }
+}
+
+@keyframes burst-rays {
+  0% {
+    transform: rotate(0deg) scale(0.3);
+    opacity: 1;
+  }
+  100% {
+    transform: rotate(90deg) scale(1.1);
+    opacity: 0;
+  }
+}
+
+@keyframes burst-pop {
+  0% {
+    transform: scale(0.2);
+    opacity: 0;
+  }
+  18% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+  70% {
+    transform: scale(1) translateY(0);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.9) translateY(-60px);
+    opacity: 0;
+  }
+}

@@ -275,6 +275,36 @@ export class AudioEngine {
     this.tone(880 * pitch, 0.06, "sine", 0.04);
   }
 
+  // Bênção escolhida: acorde celestial subindo + brilho sustentado; mais
+  // notas e um "shimmer" mais longo nas incomuns e raras.
+  blessingChosen(rarity: "common" | "uncommon" | "rare"): void {
+    const notes = rarity === "rare" ? [523, 659, 784, 1047, 1319, 1568] : rarity === "uncommon" ? [523, 659, 784, 1047, 1319] : [523, 659, 784, 1047];
+    notes.forEach((f, i) => this.tone(f, 0.5, "triangle", 0.11, i * 0.06));
+    notes.forEach((f) => this.tone(f * 2, 0.9, "sine", 0.03, notes.length * 0.06));
+    this.shimmer(rarity === "rare" ? 1.3 : rarity === "uncommon" ? 0.9 : 0.6);
+  }
+
+  // Chiado agudo e suave (ruído filtrado) — o "brilho mágico".
+  private shimmer(duration: number): void {
+    if (!this.ctx || !this.sfxGain || !this.noise) return;
+    const t0 = this.ctx.currentTime;
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.noise;
+    src.loop = true;
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = "highpass";
+    filter.frequency.setValueAtTime(5000, t0);
+    filter.frequency.linearRampToValueAtTime(9000, t0 + duration);
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0, t0);
+    gain.gain.linearRampToValueAtTime(0.06, t0 + 0.08);
+    gain.gain.exponentialRampToValueAtTime(0.001, t0 + duration);
+    src.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.sfxGain);
+    src.start(t0);
+    src.stop(t0 + duration + 0.05);
+  }
   bossSpawn(): void {
     this.sweep(80, 200, 0.6, "sawtooth", 0.2);
     this.sweep(60, 160, 0.8, "sine", 0.2);
