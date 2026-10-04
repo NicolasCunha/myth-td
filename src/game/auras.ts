@@ -29,8 +29,17 @@ export function hermesRegenMultiplier(level: number): number {
   return level > 0 ? HERMES_FAVOR_REGEN_MULTIPLIER + HERMES_PER_LEVEL * (level - 1) : 1;
 }
 
+export function hadesRadiusCells(rangeCells: number, level: number): number {
+  return rangeCells + HADES_RADIUS_PER_LEVEL * (level - 1);
+}
+
 export function hadesRadiusPx(tower: Tower): number {
-  return (tower.rangeCells + HADES_RADIUS_PER_LEVEL * (tower.level - 1)) * CELL;
+  return hadesRadiusCells(tower.rangeCells, tower.level) * CELL;
+}
+
+// Multiplicador de velocidade dos inimigos dentro do raio de uma Hades desse nível.
+export function hadesSlowMultiplier(level: number): number {
+  return HADES_SLOW_MULTIPLIER - HADES_SLOW_PER_LEVEL * (level - 1);
 }
 
 // Hades: dentro do alcance de alguma Hades, inimigos andam mais devagar.
@@ -39,7 +48,7 @@ export function hadesSlowFactorAt(towers: Tower[], x: number, y: number): number
   for (const tower of towers) {
     if (tower.kind !== "hades") continue;
     const d = Math.hypot(x - tower.x, y - tower.y);
-    if (d <= hadesRadiusPx(tower)) factor = Math.min(factor, HADES_SLOW_MULTIPLIER - HADES_SLOW_PER_LEVEL * (tower.level - 1));
+    if (d <= hadesRadiusPx(tower)) factor = Math.min(factor, hadesSlowMultiplier(tower.level));
   }
   return factor;
 }

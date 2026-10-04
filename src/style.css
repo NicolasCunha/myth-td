@@ -120,11 +120,6 @@ h1 .subtitle {
   cursor: pointer;
 }
 
-.sell-btn {
-  border-color: #8c2f2f !important;
-  color: #ffb199 !important;
-}
-
 .mute-btn {
   background: #131722;
   border: 1px solid #262c3b;
@@ -799,18 +794,130 @@ canvas {
   filter: grayscale(0.8);
 }
 
-/* --- Upgrade de torre --- */
+/* --- Cartão da torre selecionada (sobre o canvas, ao lado da torre) --- */
 
-.upgrade-btn {
-  border-color: #a97f3a !important;
-  color: #f2c879 !important;
+.canvas-wrap {
+  position: relative;
 }
 
-.upgrade-btn.evolve:not(:disabled) {
-  background: #3a2f12 !important;
-  border-color: #ffd75e !important;
-  color: #ffd75e !important;
-  box-shadow: 0 0 10px rgba(255, 215, 94, 0.35);
+.tower-popover {
+  position: absolute;
+  z-index: 5;
+  width: 230px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  background: rgba(19, 23, 34, 0.96);
+  border: 1px solid #a97f3a;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  font-size: 12px;
+}
+
+.pop-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.pop-title b {
+  color: #f2c879;
+  font-size: 14px;
+}
+
+.pop-title span {
+  color: #f2c879;
+  letter-spacing: 1px;
+  font-size: 11px;
+}
+
+.pop-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #262c3b;
+}
+
+.pop-stat {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.pop-stat span {
+  opacity: 0.75;
+}
+
+.pop-next {
+  display: none;
+  color: #7fbf94;
+}
+
+.tower-popover.preview .pop-next {
+  display: inline;
+}
+
+.pop-upgrade,
+.pop-sell {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+
+.pop-upgrade span,
+.pop-sell span {
+  font-weight: 400;
+  opacity: 0.8;
+  white-space: nowrap;
+}
+
+.pop-upgrade {
+  background: #f2c879;
+  color: #131722;
+  border: none;
+}
+
+.pop-upgrade.evolve {
+  background: #ffd75e;
+  box-shadow: 0 0 10px rgba(255, 215, 94, 0.45);
+}
+
+.pop-upgrade.is-disabled {
+  background: #2a2f3c;
+  color: #6b7280;
+  box-shadow: none;
+  cursor: default;
+}
+
+.pop-upgrade:hover:not(.is-disabled),
+.pop-sell:hover {
+  filter: brightness(1.08);
+}
+
+.pop-sell {
+  background: transparent;
+  color: #ffb199;
+  border: 1px solid #8c2f2f;
+}
+
+.pop-maxed {
+  text-align: center;
+  color: #ffd75e;
+  font-weight: 600;
+  padding: 4px 0;
 }
 
 /* --- Bênçãos --- */

@@ -1,5 +1,6 @@
 import "./style.css";
 import { Game, MAX_TOWERS, type SelectedTowerInfo } from "./game/Game";
+import { CELL } from "./game/grid";
 import { saveGame, loadGame, hasSavedGame } from "./game/save";
 import { buildSprites, buildTowerIcon } from "./game/sprites";
 import { AudioEngine } from "./game/audio";
@@ -132,8 +133,7 @@ app.innerHTML = `
     <div class="top-bar">
       <h1>Myth TD <span class="subtitle">— protótipo</span></h1>
       <div class="run-controls">
-        <button id="upgrade-btn" class="upgrade-btn" hidden></button>
-        <button id="sell-btn" class="sell-btn" hidden></button>
+
         <button id="save-btn" title="Salvar o jogo atual">💾 Salvar</button>
         <button id="back-to-menu-btn" title="Voltar ao menu (pausa o jogo)">☰ Menu</button>
         <button id="mute-btn-play" class="mute-btn" title="Silenciar áudio">🔊</button>
@@ -159,8 +159,11 @@ app.innerHTML = `
         <div class="bonus-summary" id="bonus-summary"></div>
       </aside>
       <div class="game-main">
-        <canvas id="game-canvas"></canvas>
-        <p class="hint">Clique numa célula vazia pra construir a torre escolhida: o jogo entra em câmera lenta e você escolhe pra onde ela fica virada (aponte o mouse ou use setas/WASD, depois clique ou Enter; Esc ou botão direito cancela). A orientação só muda o alcance dos egípcios. Clique numa torre já construída pra selecioná-la: dá pra melhorá-la (U) até a forma mitológica ou vendê-la (V). A cada marco de abates os deuses oferecem uma bênção.</p>
+        <div class="canvas-wrap">
+          <canvas id="game-canvas"></canvas>
+          <div class="tower-popover" id="tower-popover" hidden></div>
+        </div>
+        <p class="hint">Clique numa célula vazia pra construir a torre escolhida: o jogo entra em câmera lenta e você escolhe pra onde ela fica virada (aponte o mouse ou use setas/WASD, depois clique ou Enter; Esc ou botão direito cancela). A orientação só muda o alcance dos egípcios. Clique numa torre já construída: o jogo entra em câmera lenta e um cartão ao lado dela mostra os status e os botões de melhorar (U) até a forma mitológica e de vender (V) — Esc ou botão direito fecha. A cada marco de abates os deuses oferecem uma bênção.</p>
       </div>
     </div>
   </div>
@@ -274,8 +277,7 @@ const ambrosiaCountEl = document.querySelector<HTMLElement>("#ambrosia-count")!;
 const upgradeTreeEl = document.querySelector<HTMLDivElement>("#upgrade-tree")!;
 const saveBtn = document.querySelector<HTMLButtonElement>("#save-btn")!;
 const backToMenuBtn = document.querySelector<HTMLButtonElement>("#back-to-menu-btn")!;
-const sellBtn = document.querySelector<HTMLButtonElement>("#sell-btn")!;
-const upgradeBtn = document.querySelector<HTMLButtonElement>("#upgrade-btn")!;
+const towerPopover = document.querySelector<HTMLDivElement>("#tower-popover")!;
 const blessingOverlay = document.querySelector<HTMLDivElement>("#blessing-overlay")!;
 const blessingChoicesEl = document.querySelector<HTMLDivElement>("#blessing-choices")!;
 const blessingListEl = document.querySelector<HTMLDivElement>("#blessing-list")!;
@@ -409,32 +411,7 @@ const game = new Game(canvas, hud, {
     towerCountEl.innerHTML = `Torres: <b>${towerCount}/${MAX_TOWERS}</b>`;
     towerCountEl.classList.toggle("full", towerCount >= MAX_TOWERS);
   },
-  onTowerSelected: (info: SelectedTowerInfo | null) => {
-    if (!info) {
-      sellBtn.hidden = true;
-      upgradeBtn.hidden = true;
-      return;
-    }
-    const opt = optionFor(info.kind);
-    const evolved = info.upgradeCost === null;
-    const name = evolved ? EVOLVED_NAMES[info.kind] : opt.name;
-    sellBtn.textContent = `🗑️ Vender ${name} (+${info.refund})`;
-    sellBtn.hidden = false;
-
-    upgradeBtn.hidden = false;
-    upgradeBtn.classList.toggle("evolve", info.level === info.maxLevel - 1);
-    if (evolved) {
-      upgradeBtn.textContent = "★ Forma mitológica";
-      upgradeBtn.disabled = true;
-    } else if (info.level === info.maxLevel - 1) {
-      upgradeBtn.textContent = `🌟 Evoluir: ${EVOLVED_NAMES[info.kind]} — ${info.upgradeCost}`;
-      upgradeBtn.disabled = !info.canAffordUpgrade;
-    } else {
-      upgradeBtn.textContent = `⬆️ Nível ${info.level + 1} — ${info.upgradeCost}`;
-      upgradeBtn.disabled = !info.canAffordUpgrade;
-    }
-    upgradeBtn.title = `${opt.name} — nível ${info.level}/${info.maxLevel} (atalho: U melhora, V vende)`;
-  },
+  onTowerSelected: (info) => renderTowerPopover(info),
   onBlessingOffer: (choices) => showBlessingOffer(choices),
   onBlessingsChanged: (stacks) => renderBlessingList(stacks),
   onBonusesChanged: (rows) => renderBonusSummary(rows),
@@ -782,12 +759,70 @@ backToMenuBtn.addEventListener("click", () => {
   showView("menu");
 });
 
-sellBtn.addEventListener("click", () => {
-  game.sellSelectedTower();
-});
+// --- Cartão da torre selecionada: aparece ao lado dela, sobre o canvas ---
 
-upgradeBtn.addEventListener("click", () => {
-  game.upgradeSelectedTower();
+const POPOVER_GAP = 10;
+// Mouse em cima de "Melhorar": os status mostram também o valor do próximo nível.
+let popoverPreview = false;
+
+function renderTowerPopover(info: SelectedTowerInfo | null): void {
+  if (!info) {
+    towerPopover.hidden = true;
+    popoverPreview = false;
+    return;
+  }
+  const evolved = info.upgradeCost === null;
+  const evolveStep = info.level === info.maxLevel - 1;
+  const name = evolved ? EVOLVED_NAMES[info.kind] : optionFor(info.kind).name;
+  const pips = "●".repeat(info.level) + "○".repeat(info.maxLevel - info.level);
+  const stats = info.stats
+    .map((s) => {
+      const next = s.next && s.next !== s.value ? `<span class="pop-next"> → ${s.next}</span>` : "";
+      return `<div class="pop-stat"><span>${s.label}</span><b>${s.value}${next}</b></div>`;
+    })
+    .join("");
+  // "is-disabled" em vez de disabled: botão desabilitado não dispara hover,
+  // e a prévia do próximo nível é útil mesmo sem Favor suficiente.
+  const upgrade = evolved
+    ? `<div class="pop-maxed">★ Forma mitológica</div>`
+    : `<button class="pop-upgrade${evolveStep ? " evolve" : ""}${info.canAffordUpgrade ? "" : " is-disabled"}" data-action="upgrade">
+         ${evolveStep ? `🌟 Evoluir: ${EVOLVED_NAMES[info.kind]}` : `⬆️ Melhorar (nível ${info.level + 1})`}
+         <span>${info.upgradeCost} Favor · U</span>
+       </button>`;
+  towerPopover.innerHTML = `
+    <div class="pop-title"><b>${name}</b><span>${pips}</span></div>
+    <div class="pop-stats">${stats}</div>
+    ${upgrade}
+    <button class="pop-sell" data-action="sell">🗑️ Vender <span>+${info.refund} Favor · V</span></button>`;
+  towerPopover.classList.toggle("preview", popoverPreview && !evolved);
+  towerPopover.hidden = false;
+  positionTowerPopover(info.x, info.y);
+}
+
+// Acima da torre; se não couber, embaixo. Nunca sai pelas laterais do mapa.
+function positionTowerPopover(x: number, y: number): void {
+  const w = towerPopover.offsetWidth;
+  const h = towerPopover.offsetHeight;
+  const left = Math.max(4, Math.min(canvas.clientWidth - w - 4, x - w / 2));
+  let top = y - CELL / 2 - h - POPOVER_GAP;
+  if (top < 4) top = y + CELL / 2 + POPOVER_GAP;
+  towerPopover.style.left = `${left}px`;
+  towerPopover.style.top = `${top}px`;
+}
+
+towerPopover.addEventListener("click", (e) => {
+  const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-action]");
+  if (!btn || btn.classList.contains("is-disabled")) return;
+  if (btn.dataset.action === "upgrade") game.upgradeSelectedTower();
+  else game.sellSelectedTower();
+});
+towerPopover.addEventListener("mouseover", (e) => {
+  popoverPreview = (e.target as HTMLElement).closest('[data-action="upgrade"]') !== null;
+  towerPopover.classList.toggle("preview", popoverPreview);
+});
+towerPopover.addEventListener("mouseleave", () => {
+  popoverPreview = false;
+  towerPopover.classList.remove("preview");
 });
 
 // --- Bênçãos: oferta (overlay com 3 cartas) e lista das já escolhidas ---

@@ -226,11 +226,20 @@ export class Tower {
   }
 
   get damage(): number {
-    return this.baseDamage * LEVEL_DAMAGE_MULT[this.level - 1];
+    return this.damageAtLevel(this.level);
   }
 
   get fireInterval(): number {
-    return this.baseFireInterval * LEVEL_INTERVAL_MULT[this.level - 1];
+    return this.fireIntervalAtLevel(this.level);
+  }
+
+  // Valores num nível qualquer — usados na prévia do próximo upgrade.
+  damageAtLevel(level: number): number {
+    return this.baseDamage * LEVEL_DAMAGE_MULT[level - 1];
+  }
+
+  fireIntervalAtLevel(level: number): number {
+    return this.baseFireInterval * LEVEL_INTERVAL_MULT[level - 1];
   }
 
   get evolved(): boolean {

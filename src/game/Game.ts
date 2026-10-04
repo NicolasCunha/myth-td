@@ -49,7 +49,7 @@ import {
   type BossEvent,
 } from "./difficulty";
 import { HIT_FLASH_DURATION, DEATH_DURATION, CORE_HIT_FLASH_DURATION, DAMAGE_POPUP_DURATION, ATTACK_DURATION, STRIKE_POINT } from "./animation";
-import { hadesSlowFactorAt } from "./auras";
+import { hadesSlowFactorAt, heraDamageMultiplier, hermesRegenMultiplier, hadesSlowMultiplier, hadesRadiusCells } from "./auras";
 import { acquireTargets, closestEnemyTo } from "./targeting";
 import { GameRenderer } from "./renderer";
 
@@ -68,9 +68,9 @@ const SELL_REFUND_RATIO = 0.5;
 // futuro "deck building" de torres).
 export const MAX_TOWERS = 10;
 
-// Ao clicar numa célula pra construir, o jogo entra em câmera lenta enquanto
-// o jogador escolhe pra onde a torre fica virada.
-const PLACEMENT_TIME_SCALE = 0.5;
+// Câmera lenta: ao escolher a orientação de uma torre nova e enquanto uma
+// torre construída está selecionada (tempo pra analisar melhorar/vender).
+const SLOW_MOTION_TIME_SCALE = 0.5;
 
 const ARROW_KEYS: Record<string, Facing> = {
   ArrowUp: "up",
@@ -109,6 +109,14 @@ interface SavedTower {
   level?: number; // ausente em saves de antes dos upgrades
 }
 
+// Linha de status no cartão da torre; `next` = valor no próximo nível
+// (mostrado ao passar o mouse em "Melhorar").
+export interface TowerStatLine {
+  label: string;
+  value: string;
+  next?: string;
+}
+
 export interface SelectedTowerInfo {
   kind: TowerKind;
   refund: number;
@@ -116,6 +124,9 @@ export interface SelectedTowerInfo {
   maxLevel: number;
   upgradeCost: number | null; // null = nível máximo (já evoluída)
   canAffordUpgrade: boolean;
+  x: number; // centro da torre em px do canvas (pra posicionar o cartão)
+  y: number;
+  stats: TowerStatLine[];
 }
 
 interface SavedEnemy {
@@ -255,6 +266,7 @@ export class Game {
     canvas.addEventListener("contextmenu", (e) => {
       e.preventDefault();
       this.cancelPlacement();
+      this.deselectTower();
     });
     window.addEventListener("keydown", (e) => this.handleKey(e));
 
@@ -424,7 +436,47 @@ export class Game {
       maxLevel: MAX_TOWER_LEVEL,
       upgradeCost: cost,
       canAffordUpgrade,
+      x: tower.x,
+      y: tower.y,
+      stats: this.towerStats(tower),
     });
+  }
+
+  // Status efetivos da torre (já com bônus da run) e, se ainda dá pra
+  // melhorar, como ficam no próximo nível.
+  private towerStats(tower: Tower): TowerStatLine[] {
+    const b = this.bonuses();
+    const next = tower.level < MAX_TOWER_LEVEL ? tower.level + 1 : null;
+    const pct = (x: number) => `${Math.round(x * 100)}%`;
+    const line = (label: string, at: (level: number) => string): TowerStatLine => ({
+      label,
+      value: at(tower.level),
+      next: next === null ? undefined : at(next),
+    });
+
+    switch (tower.kind) {
+      case "hera":
+        return [line("Dano de todas as torres", (l) => `+${pct(heraDamageMultiplier(l) - 1)}`)];
+      case "hades":
+        return [
+          line("Lentidão no raio", (l) => `-${pct(1 - hadesSlowMultiplier(l))}`),
+          line("Raio", (l) => `${hadesRadiusCells(tower.rangeCells, l)} casas`),
+        ];
+      case "hermes":
+        return [line("Regeneração de Favor", (l) => `x${hermesRegenMultiplier(l)}`)];
+      default: {
+        const damageMult = b.damageMult * (1 + b.pantheonDamage[towerPantheon(tower.kind)]);
+        return [
+          line("Dano", (l) => String(Math.round(tower.damageAtLevel(l) * damageMult))),
+          line("Ataques por segundo", (l) => (1 / (tower.fireIntervalAtLevel(l) * (1 - b.attackSpeedBonus))).toFixed(1)),
+        ];
+      }
+    }
+  }
+
+  // Fecha o cartão da torre selecionada (e sai da câmera lenta).
+  deselectTower(): void {
+    if (this.selectedTower) this.selectTower(null);
   }
 
   reset(): void {
@@ -560,8 +612,10 @@ export class Game {
 
   private loop = (ts: number): void => {
     if (!this.running) return;
-    // Escolhendo bênção: jogo congelado. Escolhendo orientação: câmera lenta.
-    const timeScale = this.pendingBlessing || this.externalPause ? 0 : this.placing ? PLACEMENT_TIME_SCALE : this.speedMultiplier;
+    // Escolhendo bênção: jogo congelado. Escolhendo orientação ou com uma
+    // torre selecionada: câmera lenta.
+    const slowMotion = this.placing !== null || this.selectedTower !== null;
+    const timeScale = this.pendingBlessing || this.externalPause ? 0 : slowMotion ? SLOW_MOTION_TIME_SCALE : this.speedMultiplier;
     const dt = Math.min((ts - this.lastTs) / 1000, MAX_DT) * timeScale;
     this.lastTs = ts;
 
@@ -916,9 +970,10 @@ export class Game {
   private handleKey(e: KeyboardEvent): void {
     if (!this.running || this.gameOver || this.pendingBlessing) return;
     if (!this.placing) {
-      // Atalhos pra torre selecionada: U melhora, V vende.
+      // Atalhos pra torre selecionada: U melhora, V vende, Esc fecha.
       if (e.code === "KeyU") this.upgradeSelectedTower();
       else if (e.code === "KeyV") this.sellSelectedTower();
+      else if (e.code === "Escape") this.deselectTower();
       return;
     }
     const facing = ARROW_KEYS[e.code];
