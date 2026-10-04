@@ -5,6 +5,7 @@ import { buildSprites, buildTowerIcon } from "./game/sprites";
 import { AudioEngine } from "./game/audio";
 import { TEAM_SIZE, loadTeam, saveTeam } from "./game/team";
 import { BLESSINGS, blessingDef, RARITY_LABELS, type BlessingId, type BlessingStacks } from "./game/blessings";
+import type { BonusRow } from "./game/bonuses";
 import { loadSettings, saveSettings } from "./game/settings";
 import { exportBackup, importBackup, backupFileName } from "./game/backup";
 import { Tutorial } from "./tutorial";
@@ -155,6 +156,7 @@ app.innerHTML = `
         <div id="sidebar-groups"></div>
         <div class="tower-count" id="tower-count">Torres: <b>0/${MAX_TOWERS}</b></div>
         <div class="blessing-list" id="blessing-list" hidden></div>
+        <div class="bonus-summary" id="bonus-summary"></div>
       </aside>
       <div class="game-main">
         <canvas id="game-canvas"></canvas>
@@ -277,6 +279,7 @@ const upgradeBtn = document.querySelector<HTMLButtonElement>("#upgrade-btn")!;
 const blessingOverlay = document.querySelector<HTMLDivElement>("#blessing-overlay")!;
 const blessingChoicesEl = document.querySelector<HTMLDivElement>("#blessing-choices")!;
 const blessingListEl = document.querySelector<HTMLDivElement>("#blessing-list")!;
+const bonusSummaryEl = document.querySelector<HTMLDivElement>("#bonus-summary")!;
 const muteBtnPlay = document.querySelector<HTMLButtonElement>("#mute-btn-play")!;
 const settingsView = document.querySelector<HTMLDivElement>("#settings")!;
 const menuSettingsBtn = document.querySelector<HTMLButtonElement>("#menu-settings")!;
@@ -434,6 +437,7 @@ const game = new Game(canvas, hud, {
   },
   onBlessingOffer: (choices) => showBlessingOffer(choices),
   onBlessingsChanged: (stacks) => renderBlessingList(stacks),
+  onBonusesChanged: (rows) => renderBonusSummary(rows),
   onEvent: (event) => tutorial.notify(event),
   meta: computeMetaModifiers(meta),
   audio,
@@ -788,6 +792,12 @@ upgradeBtn.addEventListener("click", () => {
 
 // --- Bênçãos: oferta (overlay com 3 cartas) e lista das já escolhidas ---
 
+// Prévia na carta: como cada total fica se o jogador escolher essa bênção.
+function previewHtml(lines: string[]): string {
+  if (lines.length === 0) return "";
+  return `<span class="blessing-preview">${lines.map((l) => `<span>${l}</span>`).join("")}</span>`;
+}
+
 function showBlessingOffer(choices: BlessingId[]): void {
   blessingChoicesEl.innerHTML = choices
     .map((id) => {
@@ -798,6 +808,7 @@ function showBlessingOffer(choices: BlessingId[]): void {
           <span class="blessing-icon">${def.icon}</span>
           <span class="blessing-name">${def.name}</span>
           <span class="blessing-desc">${def.description}</span>
+          ${previewHtml(game.previewBlessing(id))}
         </button>`;
     })
     .join("");
@@ -809,6 +820,13 @@ function showBlessingOffer(choices: BlessingId[]): void {
   }
   blessingOverlay.classList.add("visible");
   audio.blessing();
+}
+
+// Painel "Bônus ativos": totais efetivos que o jogador está recebendo agora.
+function renderBonusSummary(rows: BonusRow[]): void {
+  bonusSummaryEl.innerHTML =
+    `<h3 class="sidebar-section-title">Bônus ativos</h3>` +
+    rows.map((r) => `<div class="bonus-row"><span>${r.label}</span><b>${r.value}</b></div>`).join("");
 }
 
 function renderBlessingList(stacks: BlessingStacks): void {

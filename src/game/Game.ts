@@ -11,26 +11,15 @@ import type { AudioEngine } from "./audio";
 import {
   blessingThreshold,
   rollBlessings,
-  PANTHEON_DAMAGE_PER_STACK,
-  ATTACK_SPEED_PER_STACK,
-  CRIT_PER_STACK,
-  ENEMY_SLOW_PER_STACK,
-  DISCOUNT_PER_STACK,
-  FAVOR_REGEN_PER_STACK,
   OFFERING_FAVOR,
   SACRED_WALL_HEAL,
   BLESSED_CORE_HP,
-  SOUL_HARVEST_PER_STACK,
-  ASCLEPIUS_REGEN_PER_STACK,
-  CRUSHING_CRIT_MULT,
-  GROWING_WRATH_PER_BLESSING,
-  CHAIN_CHANCE_PER_STACK,
   CHAIN_DAMAGE_RATIO,
   CHAIN_RADIUS_CELLS,
-  EXECUTION_THRESHOLD,
   type BlessingId,
   type BlessingStacks,
 } from "./blessings";
+import { computeBonuses, describeBonuses, diffBonusRows, type Bonuses, type BonusRow } from "./bonuses";
 import {
   RUN_DURATION,
   ENEMY_RADIUS,
@@ -60,21 +49,13 @@ import {
   type BossEvent,
 } from "./difficulty";
 import { HIT_FLASH_DURATION, DEATH_DURATION, CORE_HIT_FLASH_DURATION, DAMAGE_POPUP_DURATION, ATTACK_DURATION, STRIKE_POINT } from "./animation";
-import { bestLevelOf, heraDamageMultiplier, hermesRegenMultiplier, hadesSlowFactorAt } from "./auras";
+import { hadesSlowFactorAt } from "./auras";
 import { acquireTargets, closestEnemyTo } from "./targeting";
 import { GameRenderer } from "./renderer";
 
 const BASE_CORE_HP = 100;
-const MAX_ATTACK_SPEED_BONUS = 0.6; // teto somando meta + bênçãos, pra cadência não ir a zero
-
-const PANTHEON_BLESSING: Record<Pantheon, BlessingId> = {
-  greek: "olympusFury",
-  egyptian: "desertWrath",
-  norse: "asgardFury",
-};
 const CORE_HIT_RADIUS = CELL * 0.55;
 const STARTING_FAVOR = 20;
-const FAVOR_REGEN_PER_SEC = 1; // Favor regenera sozinho, mesmo sem abater inimigos
 const MAX_DT = 0.05; // evita saltos grandes quando a aba volta do background
 
 function towerCost(builtCount: number): number {
@@ -180,6 +161,8 @@ export interface GameOptions {
   // Marco de abates atingido: o jogo pausa e espera chooseBlessing() com uma das opções.
   onBlessingOffer: (choices: BlessingId[]) => void;
   onBlessingsChanged: (stacks: BlessingStacks) => void;
+  // Totais efetivos dos bônus (painel "Bônus ativos"); só é chamado quando mudam.
+  onBonusesChanged?: (rows: BonusRow[]) => void;
   // Ações do jogador — usadas pelo tutorial pra saber quando avançar.
   onEvent?: (event: GameEvent) => void;
   meta?: MetaModifiers;
@@ -195,6 +178,8 @@ export class Game {
   private readonly onBlessingOffer: (choices: BlessingId[]) => void;
   private readonly onBlessingsChanged: (stacks: BlessingStacks) => void;
   private readonly onEvent: (event: GameEvent) => void;
+  private readonly onBonusesChanged: (rows: BonusRow[]) => void;
+  private lastBonusesKey = "";
   private readonly audio?: AudioEngine;
 
   private towers: Tower[] = [];
@@ -248,6 +233,7 @@ export class Game {
     this.onBlessingOffer = options.onBlessingOffer;
     this.onBlessingsChanged = options.onBlessingsChanged;
     this.onEvent = options.onEvent ?? (() => {});
+    this.onBonusesChanged = options.onBonusesChanged ?? (() => {});
     this.audio = options.audio;
     this.meta = options.meta ?? NO_META_MODIFIERS;
     this.favor = STARTING_FAVOR + this.meta.startingFavorBonus;
@@ -320,17 +306,51 @@ export class Game {
     this.lastTs = performance.now(); // não conta o tempo parado na escolha
     this.audio?.purchase();
     this.onBlessingsChanged({ ...this.blessings });
+    this.emitBonuses();
     this.updateHud();
     this.refreshSelectedInfo();
+  }
+
+  // O que muda no resumo de bônus se o jogador escolher essa bênção
+  // (mostrado em cada carta da oferta).
+  previewBlessing(id: BlessingId): string[] {
+    const before = this.bonusRows(this.blessings, this.coreMaxHp);
+    const after = this.bonusRows({ ...this.blessings, [id]: (this.blessings[id] ?? 0) + 1 }, this.coreMaxHp + (id === "blessedCore" ? BLESSED_CORE_HP : 0));
+    const lines = diffBonusRows(before, after);
+    if (id === "offering") lines.push(`Favor: ${Math.floor(this.favor)} → ${Math.floor(this.favor + OFFERING_FAVOR)}`);
+    if (id === "sacredWall") lines.push(`Núcleo: ${Math.ceil(this.coreHp)} → ${Math.ceil(Math.min(this.coreMaxHp, this.coreHp + SACRED_WALL_HEAL))}`);
+    if (id === "blessedCore") lines.push(`Núcleo: ${Math.ceil(this.coreHp)} → ${Math.ceil(this.coreHp + BLESSED_CORE_HP)}`);
+    if (id === "ascension") {
+      const n = this.towers.filter((t) => t.level < MAX_TOWER_LEVEL).length;
+      lines.push(n > 0 ? `${n} ${n === 1 ? "torre sobe" : "torres sobem"} 1 nível` : "Todas as torres já estão no nível máximo");
+    }
+    return lines;
   }
 
   private stacks(id: BlessingId): number {
     return this.blessings[id] ?? 0;
   }
 
+  private bonuses(): Bonuses {
+    return computeBonuses(this.blessings, this.meta, this.towers);
+  }
+
+  private bonusRows(blessings: BlessingStacks, coreMaxHp: number): BonusRow[] {
+    return describeBonuses(computeBonuses(blessings, this.meta, this.towers), this.teamPantheons, coreMaxHp);
+  }
+
+  // Reenvia o resumo de bônus pra UI, só quando algo mudou.
+  private emitBonuses(): void {
+    const rows = this.bonusRows(this.blessings, this.coreMaxHp);
+    const key = JSON.stringify(rows);
+    if (key === this.lastBonusesKey) return;
+    this.lastBonusesKey = key;
+    this.onBonusesChanged(rows);
+  }
+
   // Desconto das bênçãos aplicado a construir e melhorar.
   private discounted(cost: number): number {
-    return Math.round(cost * (1 - DISCOUNT_PER_STACK * this.stacks("templeDiscount")));
+    return Math.round(cost * this.bonuses().costMult);
   }
 
   start(): void {
@@ -369,6 +389,7 @@ export class Game {
     tower.cost += cost;
     tower.level += 1;
     this.onEvent("towerUpgraded");
+    this.emitBonuses(); // Hera/Hermes mais fortes mudam os totais
     if (tower.evolved) this.audio?.victory();
     else this.audio?.build();
     this.updateHud();
@@ -534,6 +555,7 @@ export class Game {
       if (count >= this.allowedCountFor(kind)) maxed.add(kind);
     }
     this.onTowersChanged(maxed, this.towers.length);
+    this.emitBonuses(); // construir/vender Hera ou Hermes muda os totais
   }
 
   private loop = (ts: number): void => {
@@ -555,12 +577,10 @@ export class Game {
     this.elapsed += dt;
     this.audio?.setMusicIntensity(this.elapsed / RUN_DURATION); // satura em 1 na prorrogação
     if (this.coreHitFlash > 0) this.coreHitFlash = Math.max(0, this.coreHitFlash - dt);
+    const bonuses = this.bonuses();
     // "Cajado de Asclépio": o núcleo se regenera aos poucos.
-    if (this.coreHp > 0) this.coreHp = Math.min(this.coreMaxHp, this.coreHp + ASCLEPIUS_REGEN_PER_STACK * this.stacks("asclepius") * dt);
-
-    const favorRegenMult = hermesRegenMultiplier(bestLevelOf(this.towers, "hermes"));
-    const regen = FAVOR_REGEN_PER_SEC + this.meta.favorRegenBonus + FAVOR_REGEN_PER_STACK * this.stacks("divineFlow");
-    this.favor += regen * favorRegenMult * dt;
+    if (this.coreHp > 0) this.coreHp = Math.min(this.coreMaxHp, this.coreHp + bonuses.coreRegen * dt);
+    this.favor += bonuses.favorRegen * dt;
 
     this.spawnTimer -= dt;
     if (this.spawnTimer <= 0) {
@@ -579,9 +599,9 @@ export class Game {
     }
     if (this.bossBanner > 0) this.bossBanner = Math.max(0, this.bossBanner - dt);
 
-    this.updateEnemies(dt);
+    this.updateEnemies(dt, bonuses);
     this.updateTyphon(dt);
-    this.updateTowers(dt);
+    this.updateTowers(dt, bonuses);
     this.checkBlessingMilestone();
 
     for (const shot of this.shots) shot.ttl -= dt;
@@ -715,7 +735,7 @@ export class Game {
     this.onBlessingOffer(choices);
   }
 
-  private updateEnemies(dt: number): void {
+  private updateEnemies(dt: number, bonuses: Bonuses): void {
     const core = cellCenter(CORE_COL, CORE_ROW);
     const survivors: Enemy[] = [];
 
@@ -731,7 +751,7 @@ export class Game {
       if (enemy.hpLeft <= 0) {
         enemy.dying = true;
         enemy.deathTimer = DEATH_DURATION;
-        this.favor += enemy.favorReward * (1 + SOUL_HARVEST_PER_STACK * this.stacks("soulHarvest"));
+        this.favor += enemy.favorReward * bonuses.favorPerKillMult;
         this.kills += 1;
         if (enemy.kind === "boss") this.bossDefeated = true;
         if (enemy.kind === "typhon") this.typhonDefeated = true;
@@ -759,7 +779,7 @@ export class Game {
 
       // Movimento em linha reta até o núcleo (Hades retarda quem está no seu
       // raio). Contornar torres/obstáculos é uma questão aberta do GDD.
-      const slow = hadesSlowFactorAt(this.towers, enemy.x, enemy.y) * (1 - ENEMY_SLOW_PER_STACK * this.stacks("heavyAir"));
+      const slow = hadesSlowFactorAt(this.towers, enemy.x, enemy.y) * bonuses.enemySpeedMult;
       enemy.x += (dx / dist) * enemy.speed * slow * dt;
       enemy.y += (dy / dist) * enemy.speed * slow * dt;
 
@@ -789,17 +809,9 @@ export class Game {
     }
   }
 
-  private updateTowers(dt: number): void {
-    const heraMult = heraDamageMultiplier(bestLevelOf(this.towers, "hera"));
-    const totalBlessings = Object.values(this.blessings).reduce((s, n) => s + (n ?? 0), 0);
-    const wrathMult = this.stacks("growingWrath") > 0 ? 1 + GROWING_WRATH_PER_BLESSING * totalBlessings : 1;
-    const dmgMult = heraMult * (1 + this.meta.damageBonusPercent) * wrathMult;
-    const critChance = this.meta.critChance + CRIT_PER_STACK * this.stacks("divineCrit");
-    const critMult = this.stacks("crushingBlow") > 0 ? CRUSHING_CRIT_MULT : 2;
-    const chainChance = CHAIN_CHANCE_PER_STACK * this.stacks("chainLightning");
-    // "Velocidade de Ataque" (meta) + "Mãos Ligeiras" (bênção): reduzem a recarga entre ataques.
-    const speedBonus = Math.min(MAX_ATTACK_SPEED_BONUS, this.meta.attackSpeedBonus + ATTACK_SPEED_PER_STACK * this.stacks("swiftHands"));
-    const targeting = { piercing: this.meta.piercing, singleTargetCount: 1 + this.stacks("multiShot") };
+  private updateTowers(dt: number, bonuses: Bonuses): void {
+    const { damageMult, critChance, critMult, chainChance, attackSpeedBonus } = bonuses;
+    const targeting = { piercing: bonuses.piercing, singleTargetCount: bonuses.singleTargetCount };
 
     for (const tower of this.towers) {
       if (tower.rangePattern === "none") continue; // Hera/Hades não atacam, só emanam aura
@@ -813,15 +825,15 @@ export class Game {
         const progress = 1 - tower.attackTimer / tower.attackDuration;
         if (!tower.strikeFired && progress >= STRIKE_POINT && tower.pendingTargets.length > 0) {
           this.audio?.shoot();
-          const towerMult = dmgMult * (1 + PANTHEON_DAMAGE_PER_STACK * this.stacks(PANTHEON_BLESSING[towerPantheon(tower.kind)]));
+          const towerMult = damageMult * (1 + bonuses.pantheonDamage[towerPantheon(tower.kind)]);
           for (const target of tower.pendingTargets) {
             const isCrit = Math.random() < critChance;
             const dmg = Math.round(tower.damage * towerMult * (isCrit ? critMult : 1));
-            this.dealDamage(target, dmg, isCrit, tower.x, tower.y);
+            this.dealDamage(target, dmg, isCrit, tower.x, tower.y, bonuses.executionThreshold);
             // "Raio em Cadeia": o acerto salta pra um inimigo próximo com parte do dano.
             if (chainChance > 0 && Math.random() < chainChance) {
               const next = closestEnemyTo(target, this.enemies, CHAIN_RADIUS_CELLS * CELL);
-              if (next) this.dealDamage(next, Math.round(dmg * CHAIN_DAMAGE_RATIO), false, target.x, target.y, "chain");
+              if (next) this.dealDamage(next, Math.round(dmg * CHAIN_DAMAGE_RATIO), false, target.x, target.y, bonuses.executionThreshold, "chain");
             }
             this.audio?.hit();
           }
@@ -834,7 +846,8 @@ export class Game {
       const targets = acquireTargets(tower, this.enemies, targeting);
       if (targets.length === 0) continue;
 
-      tower.cooldown = tower.fireInterval * (1 - speedBonus);
+      // "Velocidade de Ataque" (meta) + "Mãos Ligeiras" (bênção): reduzem a recarga entre ataques.
+      tower.cooldown = tower.fireInterval * (1 - attackSpeedBonus);
       // Animação nunca mais longa que a recarga — senão o próximo ataque
       // recomeçaria o braço antes do golpe e o dano nunca sairia.
       tower.attackDuration = Math.min(ATTACK_DURATION, tower.cooldown * 0.9);
@@ -844,11 +857,11 @@ export class Game {
     }
   }
 
-  private dealDamage(target: Enemy, dmg: number, crit: boolean, fromX: number, fromY: number, kind: ShotEffect["kind"] = "normal"): void {
+  private dealDamage(target: Enemy, dmg: number, crit: boolean, fromX: number, fromY: number, executionThreshold: number, kind: ShotEffect["kind"] = "normal"): void {
     target.hpLeft -= dmg;
     target.hitFlash = HIT_FLASH_DURATION;
     // "Sentença de Thanatos": inimigo comum quase morto morre na hora.
-    if (this.stacks("execution") > 0 && !isBoss(target.kind) && target.hpLeft > 0 && target.hpLeft < target.hp * EXECUTION_THRESHOLD) {
+    if (executionThreshold > 0 && !isBoss(target.kind) && target.hpLeft > 0 && target.hpLeft < target.hp * executionThreshold) {
       target.hpLeft = 0;
     }
     this.shots.push({ x1: fromX, y1: fromY, x2: target.x, y2: target.y, ttl: 0.12, kind });
