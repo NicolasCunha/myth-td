@@ -61,9 +61,9 @@ h1 .subtitle {
 
 .menu-actions {
   display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-  justify-content: center;
+  flex-direction: column;
+  gap: 10px;
+  width: 260px;
 }
 
 .menu-actions button {
