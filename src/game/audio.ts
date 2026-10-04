@@ -175,6 +175,17 @@ export class AudioEngine {
     this.noise = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.2), ctx.sampleRate);
     const data = this.noise.getChannelData(0);
     for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+
+    // Aba/janela escondida: o navegador estrangula timers (setInterval no
+    // máximo 1x/s, ou 1x/min depois de alguns minutos), então o sequenciador
+    // não consegue agendar as notas a tempo e a trilha picota/chia. Suspender o
+    // contexto congela o relógio de áudio junto — ao voltar, a música segue
+    // do ponto exato. (O jogo também já para em segundo plano: sem
+    // requestAnimationFrame, o loop não roda.)
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) void ctx.suspend();
+      else void ctx.resume();
+    });
   }
 
   setMuted(muted: boolean): void {
