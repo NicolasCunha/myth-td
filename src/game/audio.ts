@@ -124,6 +124,8 @@ export class AudioEngine {
   private intensity = 0;
   private lastShoot = 0;
   private lastHit = 0;
+  private lastKill = 0;
+  private killCombo = 0; // abates em sequência rápida: o "pop" vai subindo de tom
   private musicVolume = 1;
   private sfxVolume = 1;
   muted = false;
@@ -259,9 +261,20 @@ export class AudioEngine {
     this.lastHit = this.ctx.currentTime;
     this.tone(170, 0.05, "triangle", 0.04);
   }
+  // Abate: "pop" que sobe de tom em sequências rápidas (combo), até uma
+  // oitava acima. Vários abates no mesmo instante viram um som só.
   kill(): void {
-    this.sweep(330, 110, 0.12, "triangle", 0.1);
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    const gap = now - this.lastKill;
+    if (gap < 0.03) return;
+    this.killCombo = gap < 0.6 ? Math.min(this.killCombo + 1, 12) : 0;
+    this.lastKill = now;
+    const pitch = Math.pow(2, this.killCombo / 12);
+    this.sweep(330 * pitch, 110 * pitch, 0.12, "triangle", 0.1);
+    this.tone(880 * pitch, 0.06, "sine", 0.04);
   }
+
   bossSpawn(): void {
     this.sweep(80, 200, 0.6, "sawtooth", 0.2);
     this.sweep(60, 160, 0.8, "sine", 0.2);

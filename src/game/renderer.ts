@@ -8,6 +8,7 @@ import { ENEMY_SPRITE_SIZE, ELITE_SIZE_MULT, BOSS_BANNER_DURATION } from "./diff
 import { hadesRadiusPx } from "./auras";
 import type { TowerKind, Facing } from "./types";
 import type { PowerEffect } from "./powers";
+import { VfxSystem } from "./vfx";
 
 const RANGE_PREVIEW_COLOR = "rgba(242,153,74,0.28)"; // laranja translúcido
 const FACINGS: Facing[] = ["up", "right", "down", "left"];
@@ -42,6 +43,13 @@ export class GameRenderer {
   private readonly ctx: CanvasRenderingContext2D;
   private readonly sprites: SpriteSet;
   private v!: RenderView;
+  // Efeitos "de dopamina" (partículas, tremor). Cada golpe/crítico/abate é
+  // detectado uma única vez, quando aparece no estado.
+  private readonly vfx = new VfxSystem();
+  private seenShots = new WeakSet<object>();
+  private seenPopups = new WeakSet<object>();
+  private seenDeaths = new WeakSet<object>();
+  private lastElapsed = 0;
 
   constructor(ctx: CanvasRenderingContext2D, sprites: SpriteSet) {
     this.ctx = ctx;
@@ -53,6 +61,15 @@ export class GameRenderer {
     const v = view;
     const ctx = this.ctx;
     ctx.clearRect(0, 0, COLS * CELL, ROWS * CELL);
+
+    // Efeitos andam no tempo do jogo: pausa congela, câmera lenta desacelera.
+    const dt = Math.max(0, Math.min(0.1, v.elapsed - this.lastElapsed));
+    this.lastElapsed = v.elapsed;
+    this.ingestEvents(v);
+    this.vfx.update(dt);
+    const shake = this.vfx.shakeOffset();
+    ctx.save();
+    ctx.translate(shake.x, shake.y);
 
     // grid
     ctx.strokeStyle = "#1d2433";
@@ -137,6 +154,8 @@ export class GameRenderer {
       const flash = tower.attackTimer > 0 ? impactFlash(progress) : 0;
 
       if (tower.evolved) this.renderEvolvedGlow(tower);
+      if (tower.frenzyStacks > 0) this.renderFrenzy(tower);
+      if (tower.kind === "freya") this.renderFreyaArea(tower);
 
       ctx.save();
       ctx.translate(tower.x, tower.y + bob);
@@ -181,15 +200,7 @@ export class GameRenderer {
     }
 
     // shots
-    for (const shot of v.shots) {
-      const alpha = Math.max(shot.ttl / 0.12, 0);
-      ctx.strokeStyle = shot.kind === "chain" ? `rgba(150,210,255,${alpha})` : `rgba(255,236,160,${alpha})`;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(shot.x1, shot.y1);
-      ctx.lineTo(shot.x2, shot.y2);
-      ctx.stroke();
-    }
+    for (const shot of v.shots) this.drawShot(shot);
 
     // enemies — bamboleio de caminhada, flash branco ao levar dano, encolhe/gira ao morrer
     for (const enemy of v.enemies) {
@@ -221,6 +232,7 @@ export class GameRenderer {
         ctx.fillRect(-size / 2, -size / 2, size, size);
       }
       ctx.restore();
+      this.renderStatus(enemy);
 
       const barW = enemy.radius * 2;
       const ratio = Math.max(enemy.hpLeft / enemy.hp, 0);
@@ -229,6 +241,8 @@ export class GameRenderer {
       ctx.fillStyle = "#e05a5a";
       ctx.fillRect(enemy.x - barW / 2, enemy.y - enemy.radius - 6, barW * ratio, 3);
     }
+
+    this.vfx.draw(ctx);
 
     // damage popups — números sobem e desvanecem; críticos saem maiores e vermelhos
     ctx.textAlign = "center";
@@ -286,6 +300,177 @@ export class GameRenderer {
       ctx.fillText("◷ Câmera lenta — escolha a orientação · clique confirma · Esc cancela", w / 2, h - 12);
       ctx.restore();
     }
+
+    ctx.restore(); // tremor de tela
+  }
+
+  // Detecta o que aconteceu desde o último frame e dispara os efeitos.
+  private ingestEvents(v: RenderView): void {
+    for (const shot of v.shots) {
+      if (this.seenShots.has(shot)) continue;
+      this.seenShots.add(shot);
+      this.vfx.onHit(shot.source, shot.x1, shot.y1, shot.x2, shot.y2, shot.kind === "chain");
+    }
+    for (const popup of v.popups) {
+      if (this.seenPopups.has(popup)) continue;
+      this.seenPopups.add(popup);
+      if (popup.crit) this.vfx.onCrit(popup.x, popup.y + 12);
+    }
+    for (const enemy of v.enemies) {
+      if (!enemy.dying || this.seenDeaths.has(enemy)) continue;
+      this.seenDeaths.add(enemy);
+      this.vfx.onKill(enemy.x, enemy.y, enemy.kind, enemy.elite);
+    }
+  }
+
+  // Traço do golpe, com estilo próprio por deus. Golpes corpo a corpo e de
+  // área não têm traço — o impacto (partículas) já conta a história.
+  private drawShot(shot: ShotEffect): void {
+    const ctx = this.ctx;
+    const a = Math.max(shot.ttl / 0.12, 0);
+    const line = (color: string, width: number) => {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.beginPath();
+      ctx.moveTo(shot.x1, shot.y1);
+      ctx.lineTo(shot.x2, shot.y2);
+      ctx.stroke();
+    };
+    ctx.save();
+    if (shot.kind === "chain") {
+      line(`rgba(150,210,255,${a})`, 2);
+    } else {
+      switch (shot.source) {
+        case "zeus":
+        case "thor": {
+          // Raio em zigue-zague, tremendo a cada frame.
+          ctx.strokeStyle = `rgba(216,243,255,${a})`;
+          ctx.lineWidth = 2.5;
+          ctx.beginPath();
+          ctx.moveTo(shot.x1, shot.y1);
+          for (let i = 1; i < 5; i++) {
+            const t = i / 5;
+            ctx.lineTo(shot.x1 + (shot.x2 - shot.x1) * t + (Math.random() - 0.5) * 12, shot.y1 + (shot.y2 - shot.y1) * t + (Math.random() - 0.5) * 12);
+          }
+          ctx.lineTo(shot.x2, shot.y2);
+          ctx.stroke();
+          break;
+        }
+        case "ra":
+          line(`rgba(255,180,60,${a * 0.6})`, 7);
+          line(`rgba(255,246,214,${a})`, 2);
+          break;
+        case "poseidon": {
+          // Jato de água ondulado.
+          ctx.strokeStyle = `rgba(127,208,255,${a})`;
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          const dx = shot.x2 - shot.x1;
+          const dy = shot.y2 - shot.y1;
+          const len = Math.hypot(dx, dy) || 1;
+          for (let i = 0; i <= 12; i++) {
+            const t = i / 12;
+            const wave = Math.sin(t * Math.PI * 4) * 4;
+            const x = shot.x1 + dx * t - (dy / len) * wave;
+            const y = shot.y1 + dy * t + (dx / len) * wave;
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          }
+          ctx.stroke();
+          break;
+        }
+        case "artemis":
+        case "horus":
+        case "odin":
+        case "skadi": {
+          const color = shot.source === "artemis" ? "159,209,122" : shot.source === "horus" ? "233,215,176" : shot.source === "odin" ? "255,215,94" : "191,233,255";
+          line(`rgba(${color},${a})`, shot.source === "odin" ? 3 : 2);
+          // Ponta (flecha/lança) no alvo.
+          const ang = Math.atan2(shot.y2 - shot.y1, shot.x2 - shot.x1);
+          ctx.fillStyle = `rgba(${color},${a})`;
+          ctx.translate(shot.x2, shot.y2);
+          ctx.rotate(ang);
+          ctx.beginPath();
+          ctx.moveTo(4, 0);
+          ctx.lineTo(-5, -4);
+          ctx.lineTo(-5, 4);
+          ctx.closePath();
+          ctx.fill();
+          break;
+        }
+        case "loki":
+          ctx.setLineDash([3, 4]);
+          line(`rgba(155,227,107,${a})`, 2);
+          break;
+        case undefined:
+          line(`rgba(255,236,160,${a})`, 2);
+          break;
+        default:
+          break; // corpo a corpo / área: só o impacto
+      }
+    }
+    ctx.restore();
+  }
+
+  // Status nórdicos visíveis no inimigo: congelado (azulado), marcado (mira
+  // dourada girando em volta) e sangrando (gotas).
+  private renderStatus(enemy: Enemy): void {
+    if (enemy.dying) return;
+    const ctx = this.ctx;
+    const r = enemy.radius;
+    ctx.save();
+    if (enemy.slowTimer > 0) {
+      ctx.fillStyle = "rgba(160,220,255,0.35)";
+      ctx.strokeStyle = "rgba(216,243,255,0.9)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(enemy.x, enemy.y, r + 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+    if (enemy.markTimer > 0) {
+      const spin = this.v.elapsed * 3;
+      ctx.strokeStyle = "rgba(255,215,94,0.95)";
+      ctx.lineWidth = 2;
+      for (const start of [spin, spin + Math.PI]) {
+        ctx.beginPath();
+        ctx.arc(enemy.x, enemy.y, r + 6, start, start + Math.PI * 0.6);
+        ctx.stroke();
+      }
+    }
+    if (enemy.bleedTimer > 0) {
+      ctx.fillStyle = "#c0392b";
+      const drop = ((this.v.elapsed * 2 + enemy.seed) % 1) * 10;
+      ctx.fillRect(enemy.x - 3, enemy.y + r - 2 + drop, 2, 3);
+      ctx.fillRect(enemy.x + 3, enemy.y + r - 6 + ((drop + 5) % 10), 2, 3);
+    }
+    ctx.restore();
+  }
+
+  // Fenrir em frenesi: chama laranja/vermelha crescendo com os acúmulos.
+  private renderFrenzy(tower: Tower): void {
+    const ctx = this.ctx;
+    const k = tower.frenzyStacks / 6;
+    const flicker = 0.8 + Math.sin(this.v.elapsed * 18 + tower.seed) * 0.2;
+    ctx.save();
+    const grad = ctx.createRadialGradient(tower.x, tower.y, 4, tower.x, tower.y, CELL * (0.45 + k * 0.2));
+    grad.addColorStop(0, `rgba(255,120,40,${0.35 * k * flicker})`);
+    grad.addColorStop(1, "rgba(255,60,20,0)");
+    ctx.fillStyle = grad;
+    ctx.fillRect(tower.x - CELL, tower.y - CELL, CELL * 2, CELL * 2);
+    ctx.restore();
+  }
+
+  // Freya: as 8 casas em volta, com contorno rosado tracejado (onde a aura vale).
+  private renderFreyaArea(tower: Tower): void {
+    const ctx = this.ctx;
+    const pulse = 0.6 + Math.sin(this.v.elapsed * 2 + tower.seed) * 0.4;
+    ctx.save();
+    ctx.strokeStyle = `rgba(217,138,168,${0.25 + pulse * 0.25})`;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 4]);
+    ctx.strokeRect(tower.x - CELL * 1.5 + 2, tower.y - CELL * 1.5 + 2, CELL * 3 - 4, CELL * 3 - 4);
+    ctx.restore();
   }
 
   // Faixa escura com texto no pé do mapa (avisos de modo: mira de poder).
