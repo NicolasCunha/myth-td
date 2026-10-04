@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Saída do simulador de balanceamento
+tools/sim/.out
