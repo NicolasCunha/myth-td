@@ -124,6 +124,15 @@ Cada torre representa uma figura mitológica, agrupada por **panteão** (grego, 
   - Ajustes motivados pela simulação: Hades (-50% → -35%), evolução (x2.6 → x2.2), Ira Crescente (3% → 1,5%), Raio em Cadeia (25%/50% → 15%/40%), Sentença de Thanatos (15% → 10%), dois buffs nos egípcios e toda a curva da fase final.
   - *Achado estrutural*: por volta dos 6min todas as torres já estão no nível máximo — a partir daí o jogador só cresce por bênçãos. Um destino de Favor pro fim da run (ex.: níveis além da evolução, consumíveis) ajudaria. Egípcios seguem abaixo dos gregos no fim de run.
 
+**Pendente — destino do Favor no fim da run (favor sink):** a simulação mostra times completos terminando a run com 10–16 mil de Favor sobrando, sem onde gastar depois que todas as torres evoluem (~6min). Duas adições planejadas, a calibrar com `npm run sim`:
+
+- [ ] **Poderes divinos ativos**: barra de 3–4 poderes acionados pelo jogador, pagos em Favor, com custo que sobe a cada uso na run (e recarga curta pra não virar spam). Dão decisões ativas justamente no fim tenso e conversam com os chefes ("guardo a Égide pro pisão do Tifão?"). Ideias iniciais:
+  - ⚡ **Ira de Zeus** — clica num ponto do mapa: dano em área ali.
+  - 🛡️ **Égide** — núcleo invulnerável por alguns segundos.
+  - ⏳ **Cronos** — todos os inimigos lentos por alguns segundos.
+  - 🌊 **Maremoto** — empurra os inimigos de volta rumo às bordas.
+- [ ] **Rerrolar bênçãos com Favor**: botão "🎲 Novas opções" na tela de bênção, que sorteia 3 cartas novas; custo crescente a cada reroll na run. Dá mais peso às raridades (caçar uma rara) e é um uso secundário de Favor.
+
 ## Meta-progressão
 
 **Implementado.** Moeda permanente: **Ambrosia** (nome resolvido — substitui o antigo placeholder "Favor Divino", eliminando a colisão de nome com o Favor de run). Ganha ao final de cada run (vitória ou derrota), persistida em `localStorage` separado do save de run em andamento (ver Tecnologia), nunca perdida ao começar de novo.
@@ -203,6 +212,7 @@ Tudo implementado via transformações de canvas (`translate`/`rotate`/`scale`) 
 
 - **Alvo de deploy**: site estático hospedado no GitHub Pages — sem backend, sem servidor de jogo.
 - **Stack decidida**: TypeScript + Vite (build estático), renderização em Canvas 2D puro (sem motor externo).
+- **Organização do código** (`src/game/`): `Game.ts` (estado, loop, economia, bênçãos, save/load, input), `difficulty.ts` (curva de spawn, inimigos, chefes, elites), `targeting.ts` (mira por padrão de alcance), `auras.ts` (passivas), `animation.ts` (ciclo de ataque), `renderer.ts` (desenho a partir de uma vista só de leitura), além de `entities`, `sprites`, `audio`, `blessings`, `meta`, `team`, `settings`, `backup`. Ferramenta de balanceamento em `tools/sim/` (`npm run sim`).
 - **Persistência (implementado, parcial)**: `localStorage`, um slot único, salva manualmente pelo botão "Salvar" — serializa a run em andamento inteira (torres, inimigos, núcleo, Favor, tempo decorrido, chefe já apareceu ou não). "Carregar Jogo" no menu reconstrói a partir daí.
   - Meta-progressão, equipe e configurações também ficam no `localStorage`, cada um com sua chave.
   - **Export/import (implementado)**: em Configurações, "Exportar save" baixa um JSON (`myth-td-save-AAAA-MM-DD.json`, formato `{ format: "myth-td-save", version, exportedAt, data: { meta, team, run, settings } }`) com todo o progresso; "Importar save" valida o arquivo, pede confirmação, substitui tudo e recarrega a página (`src/game/backup.ts`).
