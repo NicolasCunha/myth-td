@@ -1,6 +1,6 @@
 // Simulador de balanceamento: roda várias runs com o bot e imprime médias.
 //   npm run sim                 -> cenários "inicio" e "times"
-//   npm run sim -- inicio       -> só um grupo (inicio | times | bencaos)
+//   npm run sim -- inicio       -> só um grupo (inicio | times | poderes | bencaos)
 //   npm run sim -- times 30     -> com 30 runs por cenário (padrão 12)
 import "./dom-stub";
 import { simulateRun, type BotOptions, type SimResult } from "./bot";
@@ -25,7 +25,8 @@ function report(label: string, team: TowerKind[], options: BotOptions = {}): voi
   console.log(
     `${label.padEnd(34)} tempo ${fmtTime(avg((r) => r.time)).padStart(5)}  abates ${avg((r) => r.kills).toFixed(0).padStart(5)}` +
       `  ambrosia ${avg((r) => computeAmbrosiaEarned(r, NO_META)).toFixed(0).padStart(5)}` +
-      `  1º titã ${pct((r) => r.bossDefeated)}  viu Tifão ${pct((r) => r.bossEventsReached >= 3)}  vitórias ${pct((r) => r.victory)}`,
+      `  1º titã ${pct((r) => r.bossDefeated)}  viu Tifão ${pct((r) => r.bossEventsReached >= 3)}  vitórias ${pct((r) => r.victory)}` +
+      `  Favor sobrando ${avg((r) => r.favorLeft).toFixed(0).padStart(6)}`,
   );
 }
 
@@ -49,6 +50,16 @@ if (group === "todos" || group === "times") {
   report("Misto grego/egípcio (10)", MIXED);
   report("Egípcios + passivas gregas (10)", EGYPTIANS);
   report("Gregos sem upgrades/bênçãos", GREEKS, { upgrades: false, blessings: false });
+  console.log();
+}
+
+if (group === "poderes") {
+  // Impacto dos poderes divinos (todos liberados, usados pela política do bot).
+  console.log("— Poderes divinos —");
+  for (const [label, team] of [["Gregos (9)", GREEKS], ["Misto (10)", MIXED], ["Egípcios + passivas (10)", EGYPTIANS]] as const) {
+    report(`${label} sem poderes`, [...team]);
+    report(`${label} com poderes`, [...team], { usePowers: true });
+  }
   console.log();
 }
 
