@@ -343,6 +343,10 @@ export class Game {
     this.teamPantheons = new Set(team.map(towerPantheon));
   }
 
+  // Tempo de jogo decorrido na run (usado pra saber se houve progresso desde o último save).
+  get runElapsed(): number {
+    return this.elapsed;
+  }
 
   get currentFavor(): number {
     return this.favor;

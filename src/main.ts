@@ -254,6 +254,17 @@ app.innerHTML = `
     </div>
   </div>
 
+  <div id="leave-overlay" class="modal-overlay">
+    <div class="panel leave-panel">
+      <h2>Voltar ao menu?</h2>
+      <p>A run fica pausada. Quer salvar antes de sair?</p>
+      <div class="leave-actions">
+        <button id="leave-save">💾 Salvar e voltar</button>
+        <button id="leave-nosave">Voltar sem salvar</button>
+        <button id="leave-cancel">Cancelar</button>
+      </div>
+    </div>
+  </div>
 
   <div id="game-over">
     <div class="panel">
@@ -288,7 +299,7 @@ const blessingChoicesEl = document.querySelector<HTMLDivElement>("#blessing-choi
 const blessingListEl = document.querySelector<HTMLDivElement>("#blessing-list")!;
 const blessingRerollBtn = document.querySelector<HTMLButtonElement>("#blessing-reroll")!;
 const powerBarEl = document.querySelector<HTMLDivElement>("#power-bar")!;
-
+const leaveOverlay = document.querySelector<HTMLDivElement>("#leave-overlay")!;
 const bonusSummaryEl = document.querySelector<HTMLDivElement>("#bonus-summary")!;
 const muteBtnPlay = document.querySelector<HTMLButtonElement>("#mute-btn-play")!;
 const settingsView = document.querySelector<HTMLDivElement>("#settings")!;
@@ -443,6 +454,7 @@ function showView(view: View): void {
   settingsView.hidden = view !== "settings";
   overlay.classList.remove("visible");
   blessingOverlay.classList.remove("visible");
+  leaveOverlay.classList.remove("visible");
   currentView = view;
   if (view !== "play") tutorial.stop();
 
@@ -607,6 +619,7 @@ menuNewBtn.addEventListener("click", () => {
   showView("play");
   game.reset();
   game.selectTowerKind(first);
+  savedAtElapsed = null;
   startRunExtras();
   if (!settings.tutorialDone) tutorial.start();
 });
@@ -624,6 +637,7 @@ menuLoadBtn.addEventListener("click", () => {
   resetSpeedToNormal();
   showView("play");
   game.loadFrom(data);
+  savedAtElapsed = data.elapsed;
   startRunExtras();
 });
 
@@ -766,7 +780,7 @@ upgradesBackBtn.addEventListener("click", () => {
 
 saveBtn.addEventListener("click", () => {
   audio.click();
-  saveGame({ ...game.serialize(), team: runTeam });
+  saveCurrentRun();
   const original = saveBtn.textContent;
   saveBtn.textContent = "✅ Salvo!";
   setTimeout(() => {
@@ -774,10 +788,45 @@ saveBtn.addEventListener("click", () => {
   }, 1200);
 });
 
-backToMenuBtn.addEventListener("click", () => {
-  audio.click();
+// --- Sair pro menu no meio da run: confirma se quer salvar ---
+
+// Tempo de jogo da run no último save — se nada mudou desde então, sai direto.
+let savedAtElapsed: number | null = null;
+
+function saveCurrentRun(): void {
+  saveGame({ ...game.serialize(), team: runTeam });
+  savedAtElapsed = game.runElapsed;
+}
+
+function leaveToMenu(): void {
+  leaveOverlay.classList.remove("visible");
   game.pause();
   showView("menu");
+}
+
+backToMenuBtn.addEventListener("click", () => {
+  audio.click();
+  if (savedAtElapsed !== null && game.runElapsed === savedAtElapsed) {
+    leaveToMenu();
+    return;
+  }
+  game.pause();
+  leaveOverlay.classList.add("visible");
+});
+
+document.querySelector<HTMLButtonElement>("#leave-save")!.addEventListener("click", () => {
+  audio.click();
+  saveCurrentRun();
+  leaveToMenu();
+});
+document.querySelector<HTMLButtonElement>("#leave-nosave")!.addEventListener("click", () => {
+  audio.click();
+  leaveToMenu();
+});
+document.querySelector<HTMLButtonElement>("#leave-cancel")!.addEventListener("click", () => {
+  audio.click();
+  leaveOverlay.classList.remove("visible");
+  game.start(); // retoma a run de onde parou
 });
 
 // --- Poderes divinos: barra abaixo do mapa (liberados na árvore de Melhorias) ---
@@ -969,6 +1018,7 @@ restartBtn.addEventListener("click", () => {
   const first = firstOfTeam(runTeam);
   game.selectTowerKind(first);
   setActiveTowerButton(first);
+  savedAtElapsed = null;
   startRunExtras();
 });
 
