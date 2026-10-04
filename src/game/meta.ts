@@ -310,8 +310,13 @@ export function computeMetaModifiers(meta: MetaState): MetaModifiers {
   };
 }
 
+// Bônus fixo por derrotar Tifão (chefe final) — vencer a run vale a pena
+// além dos abates.
+const FINAL_BOSS_AMBROSIA_BONUS = 150;
+
 export function computeAmbrosiaEarned(stats: RunStats, meta: MetaState): number {
   let total = Math.floor(stats.time / 10) + stats.kills * 2;
+  if (stats.finalBossDefeated) total += FINAL_BOSS_AMBROSIA_BONUS;
 
   total *= 1 + getLevel(meta, "ambrosiaFarming") * 0.05;
 

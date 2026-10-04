@@ -9,6 +9,7 @@ import {
   cellKey,
   towerPantheon,
   upgradeCost,
+  isBoss,
   MAX_TOWER_LEVEL,
   type Pantheon,
   type ShotEffect,
@@ -66,21 +67,42 @@ const RANGE_PREVIEW_COLOR = "rgba(242,153,74,0.28)"; // laranja translúcido
 // proporcionais ao tamanho atual da célula (tamanho, raio e velocidade).
 const SCALE = CELL / 48;
 
-const ENEMY_RADIUS: Record<EnemyKind, number> = { grunt: 8 * SCALE, fast: 6 * SCALE, tank: 11 * SCALE, healer: 8 * SCALE, boss: 18 * SCALE };
-const ENEMY_SPRITE_SIZE: Record<EnemyKind, number> = { grunt: 30 * SCALE, fast: 24 * SCALE, tank: 38 * SCALE, healer: 30 * SCALE, boss: 58 * SCALE };
+const ENEMY_RADIUS: Record<EnemyKind, number> = { grunt: 8 * SCALE, fast: 6 * SCALE, tank: 11 * SCALE, healer: 8 * SCALE, boss: 18 * SCALE, typhon: 26 * SCALE };
+const ENEMY_SPRITE_SIZE: Record<EnemyKind, number> = { grunt: 30 * SCALE, fast: 24 * SCALE, tank: 38 * SCALE, healer: 30 * SCALE, boss: 58 * SCALE, typhon: 84 * SCALE };
 
 // Curandeiro ("especial"): pulsa periodicamente e restaura HP de aliados próximos.
 const HEAL_INTERVAL = 3;
 const HEAL_RADIUS_CELLS = 2.5;
 const HEAL_PERCENT = 0.2;
 
-// Primeiro chefe da run — ver GDD > Estrutura da Run (marcos de tempo fixos).
-const BOSS_TIME_MARK = 5 * 60;
-const BOSS_HP = 900;
+// Chefes em marcos de tempo fixos — ver GDD > Estrutura da Run. O último é
+// o chefe final (Tifão): a run só é vencida depois de derrotá-lo.
+interface BossEvent {
+  time: number;
+  kind: "boss" | "typhon";
+  count: number;
+  hp: number;
+  banner: string;
+}
+const BOSS_EVENTS: BossEvent[] = [
+  { time: 5 * 60, kind: "boss", count: 1, hp: 900, banner: "UM TITÃ SE APROXIMA" },
+  { time: 7.5 * 60, kind: "boss", count: 2, hp: 1600, banner: "DOIS TITÃS AVANÇAM" },
+  { time: 9 * 60, kind: "typhon", count: 1, hp: 14000, banner: "TIFÃO, PAI DOS MONSTROS, DESPERTOU" },
+];
 const BOSS_SPEED = 28 * SCALE;
 const BOSS_DAMAGE = 25;
 const BOSS_FAVOR_REWARD = 40;
 const BOSS_BANNER_DURATION = 3.5;
+
+// Tifão: lento, invoca monstros periodicamente e, ao alcançar o núcleo, não
+// é consumido — fica pisoteando até ser derrotado.
+const TYPHON_SPEED = 10 * SCALE;
+const TYPHON_FAVOR_REWARD = 150;
+const TYPHON_SUMMON_INTERVAL = 3;
+const TYPHON_SUMMON_COUNT = 2;
+const TYPHON_STOMP_INTERVAL = 2;
+const TYPHON_STOMP_DAMAGE = 12;
+const OVERTIME_BANNER = "DERROTE TIFÃO PARA VENCER";
 
 // Hera, Hades e Hermes — auras passivas. Ver GDD > Torres Mitológicas.
 // Upgrades de nível fortalecem a aura (valores por nível acima do 1).
@@ -127,10 +149,38 @@ function impactFlash(progress: number): number {
   return d < w ? 1 - d / w : 0;
 }
 
+// --- Fase final da run ---
+// A partir de LATE_GAME_START a pressão sobe: spawns mais frequentes, vida
+// crescendo mais rápido e elites. Calibrado com o simulador (tools/sim).
+const LATE_GAME_START = 5 * 60;
+const LATE_SPAWN_SPEEDUP = 0.3; // no fim da run o intervalo de spawn fica 30% menor
+const LATE_HP_GROWTH = 0.002; // vida extra = LATE_HP_GROWTH * (segundos depois do início da fase)²
+const ELITE_START = 6 * 60;
+const ELITE_CHANCE_START = 0.08;
+const ELITE_CHANCE_END = 0.22;
+const ELITE_HP_MULT = 2;
+const ELITE_DAMAGE_MULT = 1.5;
+const ELITE_FAVOR_MULT = 2;
+const ELITE_SIZE_MULT = 1.2;
+
+// 0 antes da fase final, 1 no fim da run; continua subindo na prorrogação (até 1.5).
+function lateProgress(elapsedSec: number): number {
+  return Math.min(1.5, Math.max(0, (elapsedSec - LATE_GAME_START) / (RUN_DURATION - LATE_GAME_START)));
+}
+
 // Curva de dificuldade por tempo decorrido (não por onda numerada), conforme
 // GDD > Inimigos e Ondas: mais spawns e inimigos mais fortes com o passar do tempo.
+// Até 5min é a curva original (trava em 0.35s por volta de 1min45); depois
+// disso volta a acelerar.
 function spawnInterval(elapsedSec: number): number {
-  return Math.max(0.35, 1.6 - elapsedSec * 0.012);
+  const base = Math.max(0.35, 1.6 - elapsedSec * 0.012);
+  return base * (1 - LATE_SPAWN_SPEEDUP * Math.min(1, lateProgress(elapsedSec)));
+}
+
+function eliteChance(elapsedSec: number): number {
+  if (elapsedSec < ELITE_START) return 0;
+  const p = Math.min(1, (elapsedSec - ELITE_START) / (RUN_DURATION - ELITE_START));
+  return ELITE_CHANCE_START + (ELITE_CHANCE_END - ELITE_CHANCE_START) * p;
 }
 
 // Cada arquétipo só começa a aparecer depois de um tempo, pra não complicar o
@@ -151,7 +201,8 @@ function pickEnemyKind(elapsedSec: number): EnemyKind {
 }
 
 function enemyStatsFor(kind: EnemyKind, elapsedSec: number) {
-  const baseHp = 20 + elapsedSec * 1.1;
+  const lateSec = Math.max(0, elapsedSec - LATE_GAME_START);
+  const baseHp = 20 + elapsedSec * 1.1 + LATE_HP_GROWTH * lateSec * lateSec;
   const baseSpeed = (42 + Math.min(elapsedSec * 0.25, 38)) * SCALE;
   switch (kind) {
     case "fast":
@@ -205,6 +256,7 @@ export interface RunStats {
   victory: boolean;
   favorLeft: number;
   bossDefeated: boolean;
+  finalBossDefeated: boolean;
 }
 
 interface SavedTower {
@@ -235,6 +287,7 @@ interface SavedEnemy {
   damage: number;
   favorReward: number;
   radius: number;
+  elite?: boolean;
 }
 
 export interface SaveData {
@@ -244,8 +297,10 @@ export interface SaveData {
   coreHp: number;
   favor: number;
   kills: number;
-  bossSpawned: boolean;
+  bossSpawned: boolean; // legado: só o 1º chefe (saves antigos)
   bossDefeated: boolean;
+  bossEventsDone?: number; // quantos marcos de chefe já aconteceram
+  typhonDefeated?: boolean;
   selectedKind: TowerKind;
   team?: TowerKind[]; // equipe levada pra run (ausente em saves de antes do team builder)
   towers: SavedTower[];
@@ -295,9 +350,12 @@ export class Game {
   private elapsed = 0;
   private spawnTimer = 1;
   private kills = 0;
-  private bossSpawned = false;
-  private bossDefeated = false;
+  private bossEventsDone = 0;
+  private bossDefeated = false; // algum Titã derrotado (melhoria "Colheita do Chefe")
+  private typhonDefeated = false;
+  private overtimeAnnounced = false;
   private bossBanner = 0;
+  private bannerText = "";
 
   private selectedKind: TowerKind = "zeus";
   private selectedTower: Tower | null = null;
@@ -507,8 +565,10 @@ export class Game {
     this.elapsed = 0;
     this.spawnTimer = 1;
     this.kills = 0;
-    this.bossSpawned = false;
+    this.bossEventsDone = 0;
     this.bossDefeated = false;
+    this.typhonDefeated = false;
+    this.overtimeAnnounced = false;
     this.bossBanner = 0;
     this.gameOver = false;
     this.placing = null;
@@ -528,8 +588,10 @@ export class Game {
       coreHp: this.coreHp,
       favor: this.favor,
       kills: this.kills,
-      bossSpawned: this.bossSpawned,
+      bossSpawned: this.bossEventsDone > 0,
       bossDefeated: this.bossDefeated,
+      bossEventsDone: this.bossEventsDone,
+      typhonDefeated: this.typhonDefeated,
       selectedKind: this.selectedKind,
       coreMaxHp: this.coreMaxHp,
       blessings: { ...this.blessings },
@@ -547,6 +609,7 @@ export class Game {
           damage: e.damage,
           favorReward: e.favorReward,
           radius: e.radius,
+          elite: e.elite,
         })),
     };
   }
@@ -567,7 +630,7 @@ export class Game {
     this.enemies = data.enemies.map((e) => {
       const enemy = new Enemy(e.kind, e.x * k, e.y * k, e.hp, e.speed * k, e.damage, e.favorReward, e.radius * k);
       enemy.hpLeft = e.hpLeft;
-
+      enemy.elite = e.elite ?? false;
       return enemy;
     });
     this.shots = [];
@@ -578,8 +641,10 @@ export class Game {
     this.elapsed = data.elapsed;
     this.spawnTimer = 1;
     this.kills = data.kills;
-    this.bossSpawned = data.bossSpawned;
+    this.bossEventsDone = data.bossEventsDone ?? (data.bossSpawned ? 1 : 0);
     this.bossDefeated = data.bossDefeated;
+    this.typhonDefeated = data.typhonDefeated ?? false;
+    this.overtimeAnnounced = false;
     this.bossBanner = 0;
     this.selectedKind = data.selectedKind;
     this.gameOver = false;
@@ -630,7 +695,7 @@ export class Game {
 
   private update(dt: number): void {
     this.elapsed += dt;
-    this.audio?.setMusicIntensity(this.elapsed / RUN_DURATION);
+    this.audio?.setMusicIntensity(this.elapsed / RUN_DURATION); // satura em 1 na prorrogação
     if (this.coreHitFlash > 0) this.coreHitFlash = Math.max(0, this.coreHitFlash - dt);
     // "Cajado de Asclépio": o núcleo se regenera aos poucos.
     if (this.coreHp > 0) this.coreHp = Math.min(this.coreMaxHp, this.coreHp + ASCLEPIUS_REGEN_PER_STACK * this.stacks("asclepius") * dt);
@@ -646,13 +711,19 @@ export class Game {
       this.spawnTimer = spawnInterval(this.elapsed);
     }
 
-    if (!this.bossSpawned && this.elapsed >= BOSS_TIME_MARK) {
-      this.bossSpawned = true;
-      this.spawnBoss();
+    while (this.bossEventsDone < BOSS_EVENTS.length && this.elapsed >= BOSS_EVENTS[this.bossEventsDone].time) {
+      this.spawnBossEvent(BOSS_EVENTS[this.bossEventsDone]);
+      this.bossEventsDone += 1;
+    }
+    // Tempo acabou mas Tifão segue vivo: prorrogação até derrotá-lo.
+    if (this.elapsed >= RUN_DURATION && !this.typhonDefeated && !this.overtimeAnnounced) {
+      this.overtimeAnnounced = true;
+      this.showBanner(OVERTIME_BANNER);
     }
     if (this.bossBanner > 0) this.bossBanner = Math.max(0, this.bossBanner - dt);
 
     this.updateEnemies(dt);
+    this.updateTyphon(dt);
     this.updateTowers(dt);
     this.checkBlessingMilestone();
 
@@ -662,22 +733,40 @@ export class Game {
     for (const popup of this.popups) popup.age += dt;
     this.popups = this.popups.filter((p) => p.age < p.ttl);
 
-    if (this.coreHp <= 0 || this.elapsed >= RUN_DURATION) this.placing = null;
+    // Vitória: sobreviver até o fim do tempo E derrotar o chefe final.
+    const won = this.elapsed >= RUN_DURATION && this.typhonDefeated;
+    if (this.coreHp <= 0 || won) this.placing = null;
 
     if (this.coreHp <= 0) {
       this.coreHp = 0;
       this.gameOver = true;
       this.running = false;
       this.audio?.defeat();
-      this.onRunEnd({ time: this.elapsed, kills: this.kills, victory: false, favorLeft: Math.floor(this.favor), bossDefeated: this.bossDefeated });
-    } else if (this.elapsed >= RUN_DURATION) {
+      this.onRunEnd(this.runStats(false));
+    } else if (won) {
       this.gameOver = true;
       this.running = false;
       this.audio?.victory();
-      this.onRunEnd({ time: this.elapsed, kills: this.kills, victory: true, favorLeft: Math.floor(this.favor), bossDefeated: this.bossDefeated });
+      this.onRunEnd(this.runStats(true));
     }
 
     this.updateHud();
+  }
+
+  private runStats(victory: boolean): RunStats {
+    return {
+      time: this.elapsed,
+      kills: this.kills,
+      victory,
+      favorLeft: Math.floor(this.favor),
+      bossDefeated: this.bossDefeated,
+      finalBossDefeated: this.typhonDefeated,
+    };
+  }
+
+  private showBanner(text: string): void {
+    this.bannerText = text;
+    this.bossBanner = BOSS_BANNER_DURATION;
   }
 
   private randomEdgeCell(): { col: number; row: number } {
@@ -691,23 +780,68 @@ export class Game {
   private spawnEnemy(): void {
     const { col, row } = this.randomEdgeCell();
     const { x, y } = cellCenter(col, row);
-    const kind = pickEnemyKind(this.elapsed);
-    const stats = enemyStatsFor(kind, this.elapsed);
-    this.enemies.push(new Enemy(kind, x, y, stats.hp, stats.speed, stats.damage, stats.favor, ENEMY_RADIUS[kind]));
+    this.spawnEnemyAt(pickEnemyKind(this.elapsed), x, y, Math.random() < eliteChance(this.elapsed));
   }
 
-  // Primeiro chefe da run, num marco de tempo fixo — ver GDD > Estrutura da Run.
-  private spawnBoss(): void {
-    const { col, row } = this.randomEdgeCell();
-    const { x, y } = cellCenter(col, row);
-    this.enemies.push(new Enemy("boss", x, y, BOSS_HP, BOSS_SPEED, BOSS_DAMAGE, BOSS_FAVOR_REWARD, ENEMY_RADIUS.boss));
-    this.bossBanner = BOSS_BANNER_DURATION;
+  private spawnEnemyAt(kind: EnemyKind, x: number, y: number, elite: boolean): void {
+    const stats = enemyStatsFor(kind, this.elapsed);
+    const enemy = elite
+      ? new Enemy(kind, x, y, stats.hp * ELITE_HP_MULT, stats.speed, stats.damage * ELITE_DAMAGE_MULT, stats.favor * ELITE_FAVOR_MULT, ENEMY_RADIUS[kind] * ELITE_SIZE_MULT)
+      : new Enemy(kind, x, y, stats.hp, stats.speed, stats.damage, stats.favor, ENEMY_RADIUS[kind]);
+    enemy.elite = elite;
+    this.enemies.push(enemy);
+  }
+
+  // Marco de chefe: um ou mais chefes entrando por bordas diferentes.
+  private spawnBossEvent(event: BossEvent): void {
+    for (let i = 0; i < event.count; i++) {
+      const { col, row } = this.randomEdgeCell();
+      const { x, y } = cellCenter(col, row);
+      if (event.kind === "typhon") {
+        this.enemies.push(new Enemy("typhon", x, y, event.hp, TYPHON_SPEED, 0, TYPHON_FAVOR_REWARD, ENEMY_RADIUS.typhon));
+      } else {
+        this.enemies.push(new Enemy("boss", x, y, event.hp, BOSS_SPEED, BOSS_DAMAGE, BOSS_FAVOR_REWARD, ENEMY_RADIUS.boss));
+      }
+    }
+    this.showBanner(event.banner);
     this.audio?.bossSpawn();
+  }
+
+  // Tifão: invoca monstros ao redor de si e, parado no núcleo, pisoteia.
+  private updateTyphon(dt: number): void {
+    const core = cellCenter(CORE_COL, CORE_ROW);
+    for (const typhon of this.enemies) {
+      if (typhon.kind !== "typhon" || typhon.dying) continue;
+
+      typhon.summonTimer -= dt;
+      if (typhon.summonTimer <= 0) {
+        typhon.summonTimer = TYPHON_SUMMON_INTERVAL;
+        for (let i = 0; i < TYPHON_SUMMON_COUNT; i++) {
+          const a = Math.random() * Math.PI * 2;
+          this.spawnEnemyAt(Math.random() < 0.5 ? "grunt" : "fast", typhon.x + Math.cos(a) * typhon.radius, typhon.y + Math.sin(a) * typhon.radius, false);
+        }
+      }
+
+      if (Math.hypot(core.x - typhon.x, core.y - typhon.y) <= this.typhonReach()) {
+        typhon.stompTimer -= dt;
+        if (typhon.stompTimer <= 0) {
+          typhon.stompTimer = TYPHON_STOMP_INTERVAL;
+          this.coreHp = Math.max(0, this.coreHp - TYPHON_STOMP_DAMAGE);
+          this.coreHitFlash = CORE_HIT_FLASH_DURATION;
+          this.audio?.coreHit();
+        }
+      }
+    }
+  }
+
+  // Distância em que Tifão para de andar e começa a pisotear o núcleo.
+  private typhonReach(): number {
+    return CORE_HIT_RADIUS + ENEMY_RADIUS.typhon * 0.6;
   }
 
   // Atingiu o próximo marco de abates: sorteia 3 bênçãos e pausa até a escolha.
   private checkBlessingMilestone(): void {
-    if (this.pendingBlessing || this.coreHp <= 0 || this.elapsed >= RUN_DURATION) return;
+    if (this.pendingBlessing || this.coreHp <= 0 || this.gameOver) return;
     if (this.kills < blessingThreshold(this.blessingsTaken)) return;
     const choices = rollBlessings(this.blessings, {
       pantheons: this.teamPantheons,
@@ -767,7 +901,7 @@ export class Game {
         this.favor += enemy.favorReward * (1 + SOUL_HARVEST_PER_STACK * this.stacks("soulHarvest"));
         this.kills += 1;
         if (enemy.kind === "boss") this.bossDefeated = true;
-
+        if (enemy.kind === "typhon") this.typhonDefeated = true;
         this.audio?.kill();
         survivors.push(enemy);
         continue;
@@ -777,6 +911,11 @@ export class Game {
       const dy = core.y - enemy.y;
       const dist = Math.hypot(dx, dy);
 
+      // Tifão não é consumido: para ao alcançar o núcleo e pisoteia (ver updateTyphon).
+      if (enemy.kind === "typhon" && dist <= this.typhonReach()) {
+        survivors.push(enemy);
+        continue;
+      }
 
       if (dist <= CORE_HIT_RADIUS) {
         this.coreHp = Math.max(0, this.coreHp - enemy.damage);
@@ -876,7 +1015,7 @@ export class Game {
     target.hpLeft -= dmg;
     target.hitFlash = HIT_FLASH_DURATION;
     // "Sentença de Thanatos": inimigo comum quase morto morre na hora.
-    if (this.stacks("execution") > 0 && target.kind !== "boss" && target.hpLeft > 0 && target.hpLeft < target.hp * EXECUTION_THRESHOLD) {
+    if (this.stacks("execution") > 0 && !isBoss(target.kind) && target.hpLeft > 0 && target.hpLeft < target.hp * EXECUTION_THRESHOLD) {
       target.hpLeft = 0;
     }
     this.shots.push({ x1: fromX, y1: fromY, x2: target.x, y2: target.y, ttl: 0.12, kind });
@@ -1257,7 +1396,8 @@ export class Game {
     // enemies — bamboleio de caminhada, flash branco ao levar dano, encolhe/gira ao morrer
     for (const enemy of this.enemies) {
       const sprite = this.sprites.enemies[enemy.kind];
-      const size = ENEMY_SPRITE_SIZE[enemy.kind];
+      const size = ENEMY_SPRITE_SIZE[enemy.kind] * (enemy.elite ? ELITE_SIZE_MULT : 1);
+      if (enemy.elite && !enemy.dying) this.renderEliteGlow(enemy);
       ctx.save();
       ctx.translate(enemy.x, enemy.y);
 
@@ -1306,7 +1446,9 @@ export class Game {
       ctx.fillText(text, popup.x, y);
     }
 
-    // banner do chefe — aparece por alguns segundos quando ele nasce
+    this.renderTyphonBar();
+
+    // banner de chefe/prorrogação — aparece por alguns segundos
     if (this.bossBanner > 0) {
       const inOut = Math.min(this.bossBanner, BOSS_BANNER_DURATION - this.bossBanner, 0.4) / 0.4;
       ctx.save();
@@ -1314,9 +1456,9 @@ export class Game {
       ctx.textAlign = "center";
       ctx.font = "bold 18px system-ui, sans-serif";
       ctx.fillStyle = "rgba(10,10,14,0.85)";
-      ctx.fillText("UM TITÃ SE APROXIMA", (COLS * CELL) / 2 + 1, 35);
+      ctx.fillText(this.bannerText, (COLS * CELL) / 2 + 1, 59);
       ctx.fillStyle = "#ff6b4a";
-      ctx.fillText("UM TITÃ SE APROXIMA", (COLS * CELL) / 2, 34);
+      ctx.fillText(this.bannerText, (COLS * CELL) / 2, 58);
       ctx.restore();
     }
 
@@ -1424,6 +1566,41 @@ export class Game {
     ctx.restore();
   }
 
+  // Elite: anel dourado pulsante em volta do inimigo.
+  private renderEliteGlow(enemy: Enemy): void {
+    const ctx = this.ctx;
+    const pulse = 0.6 + Math.sin(this.elapsed * 5 + enemy.seed) * 0.4;
+    ctx.save();
+    ctx.strokeStyle = `rgba(255,215,94,${0.45 + pulse * 0.4})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(enemy.x, enemy.y, enemy.radius + 5, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Barra de vida grande do Tifão no topo do mapa, enquanto ele estiver vivo.
+  private renderTyphonBar(): void {
+    const typhon = this.enemies.find((e) => e.kind === "typhon" && !e.dying);
+    if (!typhon) return;
+    const ctx = this.ctx;
+    const w = COLS * CELL * 0.7;
+    const x = (COLS * CELL - w) / 2;
+    const y = 12;
+    const ratio = Math.max(typhon.hpLeft / typhon.hp, 0);
+    ctx.save();
+    ctx.fillStyle = "rgba(10,12,18,0.8)";
+    ctx.fillRect(x - 3, y - 3, w + 6, 20);
+    ctx.fillStyle = "#3a1414";
+    ctx.fillRect(x, y, w, 14);
+    ctx.fillStyle = "#7fd14a";
+    ctx.fillRect(x, y, w * ratio, 14);
+    ctx.font = "bold 11px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#f2efe6";
+    ctx.fillText(`TIFÃO — ${Math.ceil(typhon.hpLeft)}/${typhon.hp}`, COLS * CELL / 2, y + 11);
+    ctx.restore();
+  }
 
   // Bolinhas douradas no pé da célula: uma por nível acima do 1. A torre
   // evoluída mostra uma estrela no lugar.

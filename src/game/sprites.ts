@@ -105,6 +105,11 @@ const HEAL_GLOW = "#eaffef";
 const TITAN = "#4a3a52";
 const TITAN_DARK = "#2e2436";
 const TITAN_GLOW = "#ff6b4a";
+const TYPHON = "#2f5a3a";
+const TYPHON_DARK = "#1b3523";
+const TYPHON_SCALE = "#5d8a4a";
+const TYPHON_EYE = "#d6ff5e";
+const TYPHON_WING = "#4a2a3a";
 
 const CORE_HOT = "#fff3d6";
 const CORE_MID = "#ffcf6b";
@@ -760,6 +765,27 @@ function buildBossSprite(): HTMLCanvasElement {
   return rasterize(g);
 }
 
+// Chefe final: Tifão, pai dos monstros — gigante verde-escuro com asas
+// membranosas e cabeças de serpente brotando dos ombros, olhos ácidos.
+function buildTyphonSprite(): HTMLCanvasElement {
+  const g = emptyGrid();
+  rect(g, 0, 5, 2, 9, TYPHON_WING); // asa esquerda
+  rect(g, 13, 5, 15, 9, TYPHON_WING); // asa direita
+  pixels(g, [[1, 4], [14, 4], [0, 10], [15, 10]], TYPHON_WING);
+  circle(g, 8, 10, 6, TYPHON);
+  circle(g, 8, 12, 4, TYPHON_DARK);
+  pixels(g, [[6, 9], [9, 9], [7, 11], [10, 11], [6, 13], [9, 13]], TYPHON_SCALE); // escamas
+  // três cabeças de serpente
+  rect(g, 7, 1, 9, 4, TYPHON);
+  pixels(g, [[3, 3], [4, 3], [4, 4], [5, 5], [11, 5], [12, 4], [12, 3], [13, 3]], TYPHON);
+  pixels(g, [[2, 2], [3, 2], [13, 2], [14, 2]], TYPHON_SCALE);
+  pixels(g, [[7, 2], [9, 2], [3, 2], [13, 2]], TYPHON_EYE);
+  pixels(g, [[6, 8], [10, 8]], TYPHON_EYE); // olhos do corpo
+  pixels(g, [[7, 14], [8, 14], [9, 14]], TITAN_GLOW); // bocarra incandescente
+  outline(g, INK);
+  return rasterize(g);
+}
+
 // Recorta só a parte de cima (cabeça/cocar/ombros) de uma sprite de torre,
 // pra usar como "retrato" nos botões do menu lateral — mais fácil de
 // identificar do que um ícone genérico. Mantém a proporção, sem distorcer.
@@ -815,6 +841,7 @@ export function buildSprites(): SpriteSet {
       tank: buildTankSprite(),
       healer: buildHealerSprite(),
       boss: buildBossSprite(),
+      typhon: buildTyphonSprite(),
     },
   };
 }

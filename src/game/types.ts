@@ -20,7 +20,7 @@ export type TowerKind =
   | "bastet"
   | "isis";
 
-export type EnemyKind = "grunt" | "fast" | "tank" | "healer" | "boss";
+export type EnemyKind = "grunt" | "fast" | "tank" | "healer" | "boss" | "typhon";
 
 // Orientação da torre, escolhida pelo jogador ao construí-la. Só muda o
 // alcance de torres direcionais (egípcias, e futuramente nórdicas); nas

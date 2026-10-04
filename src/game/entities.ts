@@ -238,6 +238,10 @@ export class Tower {
   }
 }
 
+export function isBoss(kind: EnemyKind): boolean {
+  return kind === "boss" || kind === "typhon";
+}
+
 // Inimigos do protótipo. Ver GDD > Inimigos e Ondas.
 export class Enemy {
   readonly kind: EnemyKind;
@@ -255,6 +259,9 @@ export class Enemy {
   dying = false;
   deathTimer = 0;
   healTimer = 1.5; // só usado pelo arquétipo "healer" — delay inicial antes do primeiro pulso
+  elite = false; // variante reforçada da fase final da run (contorno dourado)
+  summonTimer = 2; // só Tifão: tempo até invocar os próximos monstros
+  stompTimer = 0; // só Tifão: tempo até o próximo pisão no núcleo
 
   constructor(
     kind: EnemyKind,
