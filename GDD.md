@@ -85,6 +85,8 @@ Cada torre representa uma figura mitológica, agrupada por **panteão** (grego, 
 
 **Navegação durante a run**: um botão "☰ Menu" na barra superior pausa a simulação e volta pro menu principal sem perder o progresso em memória (só não fica persistido até clicar em Salvar) — complementa Salvar/Carregar pra quem só quer sair rápido.
 
+- [ ] **Pendente — confirmar ao sair pro menu**: hoje "☰ Menu" volta direto, e o progresso só sobrevive em memória até fechar a aba (e se perde ao começar outra run). Ao clicar, o jogo deve pausar e abrir um diálogo com três opções: **Salvar e voltar ao menu**, **Voltar sem salvar** e **Cancelar** (fecha o diálogo e retoma a run). Se o jogador já salvou e nada mudou desde então, dá pra pular o diálogo e voltar direto.
+
 ## Inimigos e Ondas
 
 - Inimigos nascem nas bordas do grid, de múltiplas direções simultaneamente, aumentando em número e variedade com o tempo — estilo horda de survivor, não ondas numeradas rígidas.
@@ -170,7 +172,7 @@ As torres passivas (Hera, Hades, Hermes) ficam de fora da lista de "Duplicata" �
 - **Eventos especiais**: chefes aos 5:00, 7:30 e 9:00 e fase final com elites (implementados — ver Inimigos e Ondas); eventos de risco/recompensa (ex.: uma onda extra forte em troca de recompensa maior) ainda não implementados.
 - **Ao fim** (vitória ou derrota): tela de resumo com estatísticas da run (tempo sobrevivido, inimigos derrotados, torres usadas) + recursos de meta-progressão ganhos.
 - **Controle de velocidade**: botões 1x/2x/4x aceleram a simulação (tempo de jogo passa mais rápido, sem afetar a física/balanceamento — é o mesmo dt, só multiplicado). Pensado pra testar builds e pra quem já manja do jogo não esperar os minutos iniciais mais parados.
-- **Menu principal**: tela inicial com Novo Jogo / Carregar Jogo — ao clicar em qualquer um dos dois, vai direto pra tela do jogo. Durante a run dá pra Salvar a qualquer momento; não há botão de voltar ao menu no meio do jogo (redundante com Salvar/Carregar) — só ao fim da run, na tela de resultado.
+- **Menu principal**: tela inicial com Novo Jogo / Carregar Jogo — ao clicar em qualquer um dos dois, vai direto pra tela do jogo. Durante a run dá pra Salvar a qualquer momento e voltar ao menu pelo botão "☰ Menu" (ver Navegação durante a run, em Torres Mitológicas).
 
 ## Economia
 
