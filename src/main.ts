@@ -376,6 +376,8 @@ function resetSpeedToNormal(): void {
   for (const btn of speedButtons) btn.classList.toggle("active", btn.dataset.speed === "1");
 }
 
+let currentView: View = "menu";
+
 function showView(view: View): void {
   menu.hidden = view !== "menu";
   play.hidden = view !== "play";
@@ -384,6 +386,7 @@ function showView(view: View): void {
   shopView.hidden = view !== "shop";
   overlay.classList.remove("visible");
   blessingOverlay.classList.remove("visible");
+  currentView = view;
 
   if (view === "menu") {
     menuLoadBtn.disabled = !hasSavedGame();
@@ -391,14 +394,23 @@ function showView(view: View): void {
     menuTeamWarning.hidden = team.length > 0;
     menuTeamBadge.textContent = `(${team.length}/${TEAM_SIZE})`;
     menuAmbrosiaBadge.textContent = `(${Math.floor(meta.ambrosia)} 🍯)`;
-    audio.stopMusic();
   } else if (view === "play") {
     saveBtn.disabled = false;
-    audio.startMusic();
-  } else {
-    audio.stopMusic();
   }
+  // Trilha calma em todas as telas fora da run; a da run só durante o jogo.
+  audio.playMusic(view === "play" ? "run" : "menu");
 }
+
+// O navegador só deixa tocar áudio depois de um gesto do jogador: no
+// primeiro clique em qualquer lugar, destrava e começa a trilha da tela atual.
+document.addEventListener(
+  "pointerdown",
+  () => {
+    audio.unlock();
+    audio.playMusic(currentView === "play" ? "run" : "menu");
+  },
+  { once: true },
+);
 
 function setActiveTowerButton(kind: TowerKind): void {
   for (const btn of towerButtons) btn.classList.toggle("active", btn.dataset.kind === kind);

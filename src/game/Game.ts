@@ -619,6 +619,7 @@ export class Game {
 
   private update(dt: number): void {
     this.elapsed += dt;
+    this.audio?.setMusicIntensity(this.elapsed / RUN_DURATION);
 
     if (this.coreHitFlash > 0) this.coreHitFlash = Math.max(0, this.coreHitFlash - dt);
     // "Cajado de Asclépio": o núcleo se regenera aos poucos.
