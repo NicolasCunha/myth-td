@@ -6,6 +6,7 @@ export interface Settings {
   sfxVolume: number; // 0..1
   muted: boolean;
   tutorialDone: boolean;
+  powersTutorialDone: boolean; // dica dos poderes divinos já mostrada
 }
 
 export const SETTINGS_KEY = "myth-td-settings-v1";
@@ -15,6 +16,7 @@ const DEFAULT_SETTINGS: Settings = {
   sfxVolume: 0.8,
   muted: false,
   tutorialDone: false,
+  powersTutorialDone: false,
 };
 
 function clamp01(v: unknown, fallback: number): number {
@@ -31,6 +33,7 @@ export function loadSettings(): Settings {
       sfxVolume: clamp01(parsed.sfxVolume, DEFAULT_SETTINGS.sfxVolume),
       muted: parsed.muted === true,
       tutorialDone: parsed.tutorialDone === true,
+      powersTutorialDone: parsed.powersTutorialDone === true,
     };
   } catch {
     return { ...DEFAULT_SETTINGS };

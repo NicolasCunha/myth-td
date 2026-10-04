@@ -7,6 +7,7 @@ import { attackArmAngle, impactFlash, HIT_FLASH_DURATION, DEATH_DURATION, CORE_H
 import { ENEMY_SPRITE_SIZE, ELITE_SIZE_MULT, BOSS_BANNER_DURATION } from "./difficulty";
 import { hadesRadiusPx } from "./auras";
 import type { TowerKind, Facing } from "./types";
+import type { PowerEffect } from "./powers";
 
 const RANGE_PREVIEW_COLOR = "rgba(242,153,74,0.28)"; // laranja translúcido
 const FACINGS: Facing[] = ["up", "right", "down", "left"];
@@ -30,6 +31,11 @@ export interface RenderView {
   canAffordTower: boolean;
   bossBanner: number; // segundos restantes do banner
   bannerText: string;
+  powerTargeting: { x: number; y: number; radius: number } | null; // mira da Ira de Zeus sob o cursor
+  targetingPowerName: string | null;
+  powerEffects: readonly PowerEffect[];
+  aegisActive: boolean;
+  chronosActive: boolean;
 }
 
 export class GameRenderer {
@@ -117,6 +123,7 @@ export class GameRenderer {
     }
     ctx.restore();
     this.renderCoreHpBar(core.x, core.y, hpRatio);
+    if (v.aegisActive) this.renderAegis(core.x, core.y);
 
     // towers — balanço de respiração no corpo; o braço gira de verdade em
     // volta do ombro: recua, golpeia rápido e volta à pose de descanso.
@@ -237,6 +244,16 @@ export class GameRenderer {
       ctx.fillText(text, popup.x, y);
     }
 
+    this.renderPowerEffects();
+    if (v.chronosActive) {
+      // Cronos: o mundo inteiro levemente azulado enquanto o tempo está lento.
+      ctx.save();
+      ctx.fillStyle = "rgba(90,140,255,0.10)";
+      ctx.fillRect(0, 0, COLS * CELL, ROWS * CELL);
+      ctx.restore();
+    }
+    if (v.powerTargeting) this.renderPowerTargeting(v.powerTargeting);
+
     this.renderTyphonBar();
 
     // banner de chefe/prorrogação — aparece por alguns segundos
@@ -253,6 +270,9 @@ export class GameRenderer {
       ctx.restore();
     }
 
+    // aviso de mira de poder (câmera lenta até o clique)
+    if (v.targetingPowerName) this.renderBottomBanner(`⚡ ${v.targetingPowerName} — clique no mapa · Esc cancela`);
+
     // aviso de câmera lenta enquanto escolhe a orientação
     if (v.placing) {
       const w = COLS * CELL;
@@ -264,6 +284,82 @@ export class GameRenderer {
       ctx.font = "600 14px system-ui, sans-serif";
       ctx.fillStyle = "#f2c879";
       ctx.fillText("◷ Câmera lenta — escolha a orientação · clique confirma · Esc cancela", w / 2, h - 12);
+      ctx.restore();
+    }
+  }
+
+  // Faixa escura com texto no pé do mapa (avisos de modo: mira de poder).
+  private renderBottomBanner(text: string): void {
+    const ctx = this.ctx;
+    const w = COLS * CELL;
+    const h = ROWS * CELL;
+    ctx.save();
+    ctx.fillStyle = "rgba(10,12,18,0.75)";
+    ctx.fillRect(0, h - 34, w, 34);
+    ctx.textAlign = "center";
+    ctx.font = "600 14px system-ui, sans-serif";
+    ctx.fillStyle = "#f2c879";
+    ctx.fillText(text, w / 2, h - 12);
+    ctx.restore();
+  }
+
+  // Égide: domo dourado pulsante sobre o núcleo.
+  private renderAegis(cx: number, cy: number): void {
+    const ctx = this.ctx;
+    const pulse = 0.7 + Math.sin(this.v.elapsed * 6) * 0.3;
+    ctx.save();
+    ctx.strokeStyle = `rgba(255,215,94,${0.55 + pulse * 0.4})`;
+    ctx.fillStyle = `rgba(255,215,94,${0.08 + pulse * 0.06})`;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(cx, cy, CELL * 0.85, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Círculo de alcance da Ira de Zeus seguindo o cursor.
+  private renderPowerTargeting(t: { x: number; y: number; radius: number }): void {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.fillStyle = "rgba(216,243,255,0.12)";
+    ctx.strokeStyle = "rgba(216,243,255,0.85)";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 5]);
+    ctx.beginPath();
+    ctx.arc(t.x, t.y, t.radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Raio da Ira de Zeus (descendo do topo + clarão) e onda do Maremoto (anel crescente).
+  private renderPowerEffects(): void {
+    const ctx = this.ctx;
+    for (const fx of this.v.powerEffects) {
+      const p = fx.age / fx.ttl;
+      const alpha = 1 - p;
+      ctx.save();
+      if (fx.kind === "zeusWrath") {
+        ctx.strokeStyle = `rgba(216,243,255,${alpha})`;
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(fx.x + 8, 0);
+        ctx.lineTo(fx.x - 10, fx.y * 0.35);
+        ctx.lineTo(fx.x + 6, fx.y * 0.65);
+        ctx.lineTo(fx.x, fx.y);
+        ctx.stroke();
+        ctx.fillStyle = `rgba(255,246,214,${alpha * 0.45})`;
+        ctx.beginPath();
+        ctx.arc(fx.x, fx.y, fx.radius * (0.5 + p * 0.5), 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.strokeStyle = `rgba(120,200,255,${alpha * 0.9})`;
+        ctx.lineWidth = 10 * alpha + 2;
+        ctx.beginPath();
+        ctx.arc(fx.x, fx.y, fx.radius * p, 0, Math.PI * 2);
+        ctx.stroke();
+      }
       ctx.restore();
     }
   }

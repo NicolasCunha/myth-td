@@ -52,6 +52,22 @@ import { HIT_FLASH_DURATION, DEATH_DURATION, CORE_HIT_FLASH_DURATION, DAMAGE_POP
 import { hadesSlowFactorAt, heraDamageMultiplier, hermesRegenMultiplier, hadesSlowMultiplier, hadesRadiusCells } from "./auras";
 import { acquireTargets, closestEnemyTo } from "./targeting";
 import { GameRenderer } from "./renderer";
+import {
+  POWERS,
+  powerDef,
+  powerCost,
+  ZEUS_WRATH_RADIUS_CELLS,
+  ZEUS_WRATH_HP_PERCENT,
+  ZEUS_WRATH_BOSS_HP_PERCENT,
+  AEGIS_DURATION,
+  CHRONOS_DURATION,
+  CHRONOS_SPEED_MULT,
+  TIDAL_PUSH_CELLS,
+  TIDAL_BOSS_PUSH_CELLS,
+  type PowerId,
+  type PowerUiState,
+  type PowerEffect,
+} from "./powers";
 
 const BASE_CORE_HP = 100;
 const CORE_HIT_RADIUS = CELL * 0.55;
@@ -161,6 +177,11 @@ export interface SaveData {
   coreMaxHp?: number;
   blessings?: BlessingStacks;
   blessingsTaken?: number;
+  // Ausentes em saves de antes dos poderes:
+  powerUses?: Partial<Record<PowerId, number>>;
+  powerCooldowns?: Partial<Record<PowerId, number>>;
+  aegisTimer?: number;
+  chronosTimer?: number;
 }
 
 export type GameEvent = "placementStarted" | "towerBuilt" | "towerSelected" | "towerUpgraded";
@@ -174,6 +195,8 @@ export interface GameOptions {
   onBlessingsChanged: (stacks: BlessingStacks) => void;
   // Totais efetivos dos bônus (painel "Bônus ativos"); só é chamado quando mudam.
   onBonusesChanged?: (rows: BonusRow[]) => void;
+  // Estado da barra de poderes (custo, recarga, efeito ativo) — a cada frame.
+  onPowersChanged?: (powers: PowerUiState[]) => void;
   // Ações do jogador — usadas pelo tutorial pra saber quando avançar.
   onEvent?: (event: GameEvent) => void;
   meta?: MetaModifiers;
@@ -190,6 +213,7 @@ export class Game {
   private readonly onBlessingsChanged: (stacks: BlessingStacks) => void;
   private readonly onEvent: (event: GameEvent) => void;
   private readonly onBonusesChanged: (rows: BonusRow[]) => void;
+  private readonly onPowersChanged: (powers: PowerUiState[]) => void;
   private lastBonusesKey = "";
   private readonly audio?: AudioEngine;
 
@@ -234,6 +258,16 @@ export class Game {
   // Pausa pedida de fora (tutorial explicando algo): congela a simulação.
   private externalPause = false;
 
+  // Poderes divinos (ver powers.ts): usos na run (encarecem o próximo),
+  // recargas, efeitos ativos e o poder esperando o clique no mapa.
+  private powerUses: Partial<Record<PowerId, number>> = {};
+  private powerCooldowns: Partial<Record<PowerId, number>> = {};
+  private aegisTimer = 0;
+  private chronosTimer = 0;
+  private targetingPower: PowerId | null = null;
+  private powerEffects: PowerEffect[] = [];
+  private hoverPx: { x: number; y: number } | null = null;
+
   constructor(canvas: HTMLCanvasElement, hud: Hud, options: GameOptions) {
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("Canvas 2D context indisponível");
@@ -245,6 +279,7 @@ export class Game {
     this.onBlessingsChanged = options.onBlessingsChanged;
     this.onEvent = options.onEvent ?? (() => {});
     this.onBonusesChanged = options.onBonusesChanged ?? (() => {});
+    this.onPowersChanged = options.onPowersChanged ?? (() => {});
     this.audio = options.audio;
     this.meta = options.meta ?? NO_META_MODIFIERS;
     this.favor = STARTING_FAVOR + this.meta.startingFavorBonus;
@@ -262,11 +297,13 @@ export class Game {
     canvas.addEventListener("mousemove", (e) => this.handleHover(e, canvas));
     canvas.addEventListener("mouseleave", () => {
       this.hoverCell = null;
+      this.hoverPx = null;
     });
     canvas.addEventListener("contextmenu", (e) => {
       e.preventDefault();
       this.cancelPlacement();
       this.deselectTower();
+      this.targetingPower = null;
     });
     window.addEventListener("keydown", (e) => this.handleKey(e));
 
@@ -298,6 +335,96 @@ export class Game {
   // Equipe da run — define quais bênçãos de panteão podem ser oferecidas.
   setTeam(team: TowerKind[]): void {
     this.teamPantheons = new Set(team.map(towerPantheon));
+  }
+
+
+
+  // --- Poderes divinos ---
+
+  // Aciona um poder (botão da barra ou teclas 1-4). A Ira de Zeus entra em
+  // modo de mira (câmera lenta) e só dispara no clique no mapa; apertar de
+  // novo cancela a mira.
+  activatePower(id: PowerId): void {
+    if (!this.running || this.gameOver || this.pendingBlessing) return;
+    if (!this.meta.powers.includes(id) || (this.powerCooldowns[id] ?? 0) > 0) return;
+    if (this.favor < powerCost(id, this.powerUses[id] ?? 0)) return;
+    if (powerDef(id).needsTarget) {
+      this.targetingPower = this.targetingPower === id ? null : id;
+      this.placing = null;
+      this.deselectTower();
+      return;
+    }
+    this.firePower(id, 0, 0);
+  }
+
+  private firePower(id: PowerId, x: number, y: number): void {
+    const cost = powerCost(id, this.powerUses[id] ?? 0);
+    if (this.favor < cost || (this.powerCooldowns[id] ?? 0) > 0) return;
+    this.favor -= cost;
+    this.powerUses[id] = (this.powerUses[id] ?? 0) + 1;
+    this.powerCooldowns[id] = powerDef(id).cooldown;
+    if (id === "zeusWrath") this.castZeusWrath(x, y);
+    else if (id === "aegis") this.aegisTimer = AEGIS_DURATION;
+    else if (id === "chronos") this.chronosTimer = CHRONOS_DURATION;
+    else this.castTidalWave();
+    this.audio?.power(id);
+    this.updateHud();
+  }
+
+  // Raio no ponto clicado: % da vida máxima de cada inimigo na área (chefes
+  // levam bem menos) — escala com a run, ao contrário de um dano fixo.
+  private castZeusWrath(x: number, y: number): void {
+    const radius = ZEUS_WRATH_RADIUS_CELLS * CELL;
+    for (const enemy of this.enemies) {
+      if (enemy.dying || Math.hypot(enemy.x - x, enemy.y - y) > radius) continue;
+      const dmg = Math.round(enemy.hp * (isBoss(enemy.kind) ? ZEUS_WRATH_BOSS_HP_PERCENT : ZEUS_WRATH_HP_PERCENT));
+      enemy.hpLeft -= dmg;
+      enemy.hitFlash = HIT_FLASH_DURATION;
+      this.popups.push({ x: enemy.x, y: enemy.y - 12, value: dmg, age: 0, ttl: DAMAGE_POPUP_DURATION, crit: true });
+    }
+    this.powerEffects.push({ kind: "zeusWrath", x, y, radius, age: 0, ttl: 0.45 });
+  }
+
+  // Onda saindo do núcleo: empurra os inimigos pra longe dele (sem sair do mapa).
+  private castTidalWave(): void {
+    const core = cellCenter(CORE_COL, CORE_ROW);
+    const min = CELL / 2;
+    for (const enemy of this.enemies) {
+      if (enemy.dying) continue;
+      const dx = enemy.x - core.x;
+      const dy = enemy.y - core.y;
+      const dist = Math.hypot(dx, dy) || 1;
+      const push = (isBoss(enemy.kind) ? TIDAL_BOSS_PUSH_CELLS : TIDAL_PUSH_CELLS) * CELL;
+      enemy.x = Math.max(min, Math.min(COLS * CELL - min, enemy.x + (dx / dist) * push));
+      enemy.y = Math.max(min, Math.min(ROWS * CELL - min, enemy.y + (dy / dist) * push));
+    }
+    this.powerEffects.push({ kind: "tidalWave", x: core.x, y: core.y, radius: Math.max(COLS, ROWS) * CELL * 0.6, age: 0, ttl: 0.6 });
+  }
+
+  private updatePowers(dt: number): void {
+    for (const p of POWERS) {
+      const left = this.powerCooldowns[p.id] ?? 0;
+      if (left > 0) this.powerCooldowns[p.id] = Math.max(0, left - dt);
+    }
+    if (this.aegisTimer > 0) this.aegisTimer = Math.max(0, this.aegisTimer - dt);
+    if (this.chronosTimer > 0) this.chronosTimer = Math.max(0, this.chronosTimer - dt);
+    for (const fx of this.powerEffects) fx.age += dt;
+    this.powerEffects = this.powerEffects.filter((fx) => fx.age < fx.ttl);
+  }
+
+  private powerStates(): PowerUiState[] {
+    return this.meta.powers.map((id) => {
+      const cost = powerCost(id, this.powerUses[id] ?? 0);
+      return {
+        id,
+        cost,
+        cooldownLeft: this.powerCooldowns[id] ?? 0,
+        cooldown: powerDef(id).cooldown,
+        affordable: this.favor >= cost,
+        activeLeft: id === "aegis" ? this.aegisTimer : id === "chronos" ? this.chronosTimer : 0,
+        targeting: this.targetingPower === id,
+      };
+    });
   }
 
   // Aplica a bênção escolhida entre as oferecidas e despausa o jogo.
@@ -375,6 +502,7 @@ export class Game {
   pause(): void {
     this.running = false;
     this.placing = null;
+    this.targetingPower = null;
   }
 
   // Vende a torre selecionada (clicada no grid), devolvendo metade do Favor
@@ -501,6 +629,12 @@ export class Game {
     this.blessingsTaken = 0;
     this.pendingBlessing = null;
     this.externalPause = false;
+    this.powerUses = {};
+    this.powerCooldowns = {};
+    this.aegisTimer = 0;
+    this.chronosTimer = 0;
+    this.targetingPower = null;
+    this.powerEffects = [];
     this.onBlessingsChanged({});
     this.coreMaxHp = BASE_CORE_HP;
     this.coreHp = BASE_CORE_HP;
@@ -540,6 +674,10 @@ export class Game {
       coreMaxHp: this.coreMaxHp,
       blessings: { ...this.blessings },
       blessingsTaken: this.blessingsTaken,
+      powerUses: { ...this.powerUses },
+      powerCooldowns: { ...this.powerCooldowns },
+      aegisTimer: this.aegisTimer,
+      chronosTimer: this.chronosTimer,
       towers: this.towers.map((t) => ({ kind: t.kind, col: t.col, row: t.row, cost: t.cost, facing: t.facing, level: t.level })),
       enemies: this.enemies
         .filter((e) => !e.dying)
@@ -570,6 +708,12 @@ export class Game {
     // pra não despejar várias ofertas seguidas logo ao carregar.
     this.blessingsTaken = data.blessingsTaken ?? this.blessingsEarnedFor(data.kills);
     this.pendingBlessing = null;
+    this.powerUses = { ...(data.powerUses ?? {}) };
+    this.powerCooldowns = { ...(data.powerCooldowns ?? {}) };
+    this.aegisTimer = data.aegisTimer ?? 0;
+    this.chronosTimer = data.chronosTimer ?? 0;
+    this.targetingPower = null;
+    this.powerEffects = [];
     this.onBlessingsChanged({ ...this.blessings });
     this.enemies = data.enemies.map((e) => {
       const enemy = new Enemy(e.kind, e.x * k, e.y * k, e.hp, e.speed * k, e.damage, e.favorReward, e.radius * k);
@@ -627,7 +771,7 @@ export class Game {
     if (!this.running) return;
     // Escolhendo bênção: jogo congelado. Escolhendo orientação ou com uma
     // torre selecionada: câmera lenta.
-    const slowMotion = this.placing !== null || this.selectedTower !== null;
+    const slowMotion = this.placing !== null || this.selectedTower !== null || this.targetingPower !== null;
     const timeScale = this.pendingBlessing || this.externalPause ? 0 : slowMotion ? SLOW_MOTION_TIME_SCALE : this.speedMultiplier;
     const dt = Math.min((ts - this.lastTs) / 1000, MAX_DT) * timeScale;
     this.lastTs = ts;
@@ -644,6 +788,7 @@ export class Game {
     this.elapsed += dt;
     this.audio?.setMusicIntensity(this.elapsed / RUN_DURATION); // satura em 1 na prorrogação
     if (this.coreHitFlash > 0) this.coreHitFlash = Math.max(0, this.coreHitFlash - dt);
+    this.updatePowers(dt);
     const bonuses = this.bonuses();
     // "Cajado de Asclépio": o núcleo se regenera aos poucos.
     if (this.coreHp > 0) this.coreHp = Math.min(this.coreMaxHp, this.coreHp + bonuses.coreRegen * dt);
@@ -708,6 +853,14 @@ export class Game {
     };
   }
 
+  // Dano no núcleo — a Égide anula tudo enquanto estiver ativa.
+  private damageCore(amount: number): void {
+    if (this.aegisTimer > 0) return;
+    this.coreHp = Math.max(0, this.coreHp - amount);
+    this.coreHitFlash = CORE_HIT_FLASH_DURATION;
+    this.audio?.coreHit();
+  }
+
   private showBanner(text: string): void {
     this.bannerText = text;
     this.bossBanner = BOSS_BANNER_DURATION;
@@ -770,9 +923,7 @@ export class Game {
         typhon.stompTimer -= dt;
         if (typhon.stompTimer <= 0) {
           typhon.stompTimer = TYPHON_STOMP_INTERVAL;
-          this.coreHp = Math.max(0, this.coreHp - TYPHON_STOMP_DAMAGE);
-          this.coreHitFlash = CORE_HIT_FLASH_DURATION;
-          this.audio?.coreHit();
+          this.damageCore(TYPHON_STOMP_DAMAGE);
         }
       }
     }
@@ -799,6 +950,7 @@ export class Game {
     }
     this.pendingBlessing = choices;
     this.placing = null;
+    this.targetingPower = null;
     this.onBlessingOffer(choices);
   }
 
@@ -838,15 +990,15 @@ export class Game {
       }
 
       if (dist <= CORE_HIT_RADIUS) {
-        this.coreHp = Math.max(0, this.coreHp - enemy.damage);
-        this.coreHitFlash = CORE_HIT_FLASH_DURATION;
-        this.audio?.coreHit();
+        this.damageCore(enemy.damage);
         continue; // inimigo é consumido ao atingir o núcleo
       }
 
       // Movimento em linha reta até o núcleo (Hades retarda quem está no seu
-      // raio). Contornar torres/obstáculos é uma questão aberta do GDD.
-      const slow = hadesSlowFactorAt(this.towers, enemy.x, enemy.y) * bonuses.enemySpeedMult;
+      // raio; Cronos retarda todos). Contornar torres/obstáculos é uma
+      // questão aberta do GDD.
+      const chronosMult = this.chronosTimer > 0 ? CHRONOS_SPEED_MULT : 1;
+      const slow = hadesSlowFactorAt(this.towers, enemy.x, enemy.y) * bonuses.enemySpeedMult * chronosMult;
       enemy.x += (dx / dist) * enemy.speed * slow * dt;
       enemy.y += (dy / dist) * enemy.speed * slow * dt;
 
@@ -945,6 +1097,12 @@ export class Game {
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
+    if (this.targetingPower) {
+      this.firePower(this.targetingPower, x, y);
+      this.targetingPower = null;
+      return;
+    }
+
     if (this.placing) {
       this.updatePlacementFacing(x, y);
       this.confirmPlacement();
@@ -977,11 +1135,21 @@ export class Game {
     const y = e.clientY - rect.top;
     const { col, row } = pixelToCell(x, y);
     this.hoverCell = inBounds(col, row) ? { col, row } : null;
+    this.hoverPx = { x, y };
     if (this.placing) this.updatePlacementFacing(x, y);
   }
 
   private handleKey(e: KeyboardEvent): void {
     if (!this.running || this.gameOver || this.pendingBlessing) return;
+    const power = POWERS.find((p) => p.hotkey === e.code);
+    if (power) {
+      this.activatePower(power.id);
+      return;
+    }
+    if (this.targetingPower) {
+      if (e.code === "Escape") this.targetingPower = null;
+      return;
+    }
     if (!this.placing) {
       // Atalhos pra torre selecionada: U melhora, V vende, Esc fecha.
       if (e.code === "KeyU") this.upgradeSelectedTower();
@@ -1050,6 +1218,7 @@ export class Game {
     this.hud.time.textContent = formatTime(this.elapsed);
     this.hud.kills.textContent = String(this.kills);
     this.hud.nextCost.textContent = String(this.nextTowerCost());
+    if (this.meta.powers.length > 0) this.onPowersChanged(this.powerStates());
 
     // Botão de melhorar acende/apaga conforme o Favor sobe — só reenvia pra
     // UI quando a possibilidade de pagar muda, não todo frame.
@@ -1080,6 +1249,11 @@ export class Game {
       canAffordTower: this.favor >= this.nextTowerCost(),
       bossBanner: this.bossBanner,
       bannerText: this.bannerText,
+      powerTargeting: this.targetingPower && this.hoverPx ? { ...this.hoverPx, radius: ZEUS_WRATH_RADIUS_CELLS * CELL } : null,
+      targetingPowerName: this.targetingPower ? powerDef(this.targetingPower).name : null,
+      powerEffects: this.powerEffects,
+      aegisActive: this.aegisTimer > 0,
+      chronosActive: this.chronosTimer > 0,
     });
   }
 }

@@ -4,6 +4,7 @@
 // (save.ts) — a Ambrosia e as melhorias nunca são perdidas ao começar de novo.
 import type { RunStats } from "./Game";
 import type { TowerKind } from "./types";
+import type { PowerId } from "./powers";
 
 export type UpgradeId =
   | "favorInicial"
@@ -17,13 +18,17 @@ export type UpgradeId =
   | "mythicTriad"
   | "ambrosiaFarming"
   | "bossHarvest"
-  | "favorToAmbrosia";
+  | "favorToAmbrosia"
+  | "powerZeusWrath"
+  | "powerAegis"
+  | "powerChronos"
+  | "powerTidalWave";
 
 export interface UpgradeDef {
   id: UpgradeId;
   name: string;
   description: string;
-  branch: "favor" | "damage" | "speed" | "mythic" | "ambrosia";
+  branch: "favor" | "damage" | "speed" | "mythic" | "ambrosia" | "powers";
   requires?: { id: UpgradeId; level: number };
   maxLevel: number;
   costForLevel: (level: number) => number; // custo ambrosia pra comprar esse nível (1-indexado)
@@ -49,6 +54,7 @@ export interface MetaModifiers {
   attackSpeedBonus: number;
   duplicateKind: TowerKind | null;
   duplicateLimit: number;
+  powers: PowerId[]; // poderes divinos liberados na árvore (coluna "Poderes")
 }
 
 export const NO_META_MODIFIERS: MetaModifiers = {
@@ -61,6 +67,7 @@ export const NO_META_MODIFIERS: MetaModifiers = {
   attackSpeedBonus: 0,
   duplicateKind: null,
   duplicateLimit: 1,
+  powers: [],
 };
 
 export const UPGRADES: UpgradeDef[] = [
@@ -189,6 +196,55 @@ export const UPGRADES: UpgradeDef[] = [
     costForLevel: (lvl) => [150, 300][lvl - 1],
     bonusLabel: (lvl) => (lvl >= 2 ? "Favor restante vira Ambrosia (10:1)" : "Favor restante vira Ambrosia (20:1)"),
   },
+
+  // --- Poderes divinos: habilidades ativas pagas em Favor durante a run (ver powers.ts). Em cadeia. ---
+  {
+    id: "powerZeusWrath",
+    name: "Poder: Ira de Zeus",
+    description: "Libera o poder Ira de Zeus na run: um raio no ponto clicado tira boa parte da vida dos inimigos na área.",
+    branch: "powers",
+    maxLevel: 1,
+    costForLevel: () => 250,
+    bonusLabel: () => "Ira de Zeus liberada (tecla 1)",
+  },
+  {
+    id: "powerAegis",
+    name: "Poder: Égide",
+    description: "Libera o poder Égide na run: o núcleo fica invulnerável por alguns segundos.",
+    branch: "powers",
+    requires: { id: "powerZeusWrath", level: 1 },
+    maxLevel: 1,
+    costForLevel: () => 400,
+    bonusLabel: () => "Égide liberada (tecla 2)",
+  },
+  {
+    id: "powerChronos",
+    name: "Poder: Cronos",
+    description: "Libera o poder Cronos na run: todos os inimigos ficam bem mais lentos por alguns segundos.",
+    branch: "powers",
+    requires: { id: "powerAegis", level: 1 },
+    maxLevel: 1,
+    costForLevel: () => 500,
+    bonusLabel: () => "Cronos liberado (tecla 3)",
+  },
+  {
+    id: "powerTidalWave",
+    name: "Poder: Maremoto",
+    description: "Libera o poder Maremoto na run: uma onda empurra os inimigos de volta rumo às bordas.",
+    branch: "powers",
+    requires: { id: "powerChronos", level: 1 },
+    maxLevel: 1,
+    costForLevel: () => 650,
+    bonusLabel: () => "Maremoto liberado (tecla 4)",
+  },
+];
+
+// Qual melhoria libera qual poder (na ordem da barra da run).
+const POWER_UNLOCKS: { upgrade: UpgradeId; power: PowerId }[] = [
+  { upgrade: "powerZeusWrath", power: "zeusWrath" },
+  { upgrade: "powerAegis", power: "aegis" },
+  { upgrade: "powerChronos", power: "chronos" },
+  { upgrade: "powerTidalWave", power: "tidalWave" },
 ];
 
 export const META_KEY = "myth-td-meta-v1";
@@ -307,6 +363,7 @@ export function computeMetaModifiers(meta: MetaState): MetaModifiers {
     attackSpeedBonus: [0, 0.1, 0.2, 0.3][atkSpeedLvl] ?? 0,
     duplicateKind: hasDuplicate ? meta.duplicateTowerKind : null,
     duplicateLimit: hasTriad ? 3 : hasDuplicate ? 2 : 1,
+    powers: POWER_UNLOCKS.filter((u) => getLevel(meta, u.upgrade) > 0).map((u) => u.power),
   };
 }
 

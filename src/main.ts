@@ -9,7 +9,8 @@ import { BLESSINGS, blessingDef, RARITY_LABELS, type BlessingId, type BlessingSt
 import type { BonusRow } from "./game/bonuses";
 import { loadSettings, saveSettings } from "./game/settings";
 import { exportBackup, importBackup, backupFileName } from "./game/backup";
-import { Tutorial } from "./tutorial";
+import { Tutorial, POWERS_STEPS } from "./tutorial";
+import { powerDef, type PowerId, type PowerUiState } from "./game/powers";
 import {
   UPGRADES,
   loadMeta,
@@ -65,6 +66,7 @@ const BRANCH_TITLES: Record<UpgradeDef["branch"], string> = {
   speed: "Velocidade",
   mythic: "Mítico",
   ambrosia: "Ambrosia",
+  powers: "Poderes",
 };
 
 // Nome da forma mitológica (nível máximo) de cada torre.
@@ -163,6 +165,7 @@ app.innerHTML = `
           <canvas id="game-canvas"></canvas>
           <div class="tower-popover" id="tower-popover" hidden></div>
         </div>
+        <div class="power-bar" id="power-bar" hidden></div>
         <p class="hint">Clique numa célula vazia pra construir a torre escolhida: o jogo entra em câmera lenta e você escolhe pra onde ela fica virada (aponte o mouse ou use setas/WASD, depois clique ou Enter; Esc ou botão direito cancela). A orientação só muda o alcance dos egípcios. Clique numa torre já construída: o jogo entra em câmera lenta e um cartão ao lado dela mostra os status e os botões de melhorar (U) até a forma mitológica e de vender (V) — Esc ou botão direito fecha. A cada marco de abates os deuses oferecem uma bênção.</p>
       </div>
     </div>
@@ -247,8 +250,10 @@ app.innerHTML = `
       <h2>Os deuses oferecem uma bênção</h2>
       <p class="blessing-sub">O tempo para enquanto você escolhe.</p>
       <div class="blessing-choices" id="blessing-choices"></div>
+
     </div>
   </div>
+
 
   <div id="game-over">
     <div class="panel">
@@ -281,6 +286,9 @@ const towerPopover = document.querySelector<HTMLDivElement>("#tower-popover")!;
 const blessingOverlay = document.querySelector<HTMLDivElement>("#blessing-overlay")!;
 const blessingChoicesEl = document.querySelector<HTMLDivElement>("#blessing-choices")!;
 const blessingListEl = document.querySelector<HTMLDivElement>("#blessing-list")!;
+
+const powerBarEl = document.querySelector<HTMLDivElement>("#power-bar")!;
+
 const bonusSummaryEl = document.querySelector<HTMLDivElement>("#bonus-summary")!;
 const muteBtnPlay = document.querySelector<HTMLButtonElement>("#mute-btn-play")!;
 const settingsView = document.querySelector<HTMLDivElement>("#settings")!;
@@ -415,6 +423,7 @@ const game = new Game(canvas, hud, {
   onBlessingOffer: (choices) => showBlessingOffer(choices),
   onBlessingsChanged: (stacks) => renderBlessingList(stacks),
   onBonusesChanged: (rows) => renderBonusSummary(rows),
+  onPowersChanged: (powers) => updatePowerBar(powers),
   onEvent: (event) => tutorial.notify(event),
   meta: computeMetaModifiers(meta),
   audio,
@@ -501,7 +510,7 @@ muteBtnPlay.addEventListener("click", () => {
 
 replayTutorialBtn.addEventListener("click", () => {
   audio.click();
-  updateSettings({ tutorialDone: false });
+  updateSettings({ tutorialDone: false, powersTutorialDone: false });
   renderSettings();
 });
 
@@ -570,6 +579,15 @@ window.addEventListener("keydown", (e) => {
 
 // --- Tutorial ---
 
+const powersTutorial = new Tutorial(
+  {
+    setPaused: (paused) => game.setExternalPause(paused),
+    onFinish: () => updateSettings({ powersTutorialDone: true }),
+    grantUpgradeFavor: () => {},
+  },
+  POWERS_STEPS,
+);
+
 const tutorial = new Tutorial({
   setPaused: (paused) => game.setExternalPause(paused),
   onFinish: () => updateSettings({ tutorialDone: true }),
@@ -589,6 +607,7 @@ menuNewBtn.addEventListener("click", () => {
   showView("play");
   game.reset();
   game.selectTowerKind(first);
+  startRunExtras();
   if (!settings.tutorialDone) tutorial.start();
 });
 
@@ -605,6 +624,7 @@ menuLoadBtn.addEventListener("click", () => {
   resetSpeedToNormal();
   showView("play");
   game.loadFrom(data);
+  startRunExtras();
 });
 
 menuTeamBtn.addEventListener("click", () => {
@@ -760,6 +780,53 @@ backToMenuBtn.addEventListener("click", () => {
   showView("menu");
 });
 
+// --- Poderes divinos: barra abaixo do mapa (liberados na árvore de Melhorias) ---
+
+// Monta a barra no começo de cada run, só com os poderes liberados, e mostra
+// a dica dos poderes na primeira run em que algum estiver liberado.
+function startRunExtras(): void {
+  const unlocked = computeMetaModifiers(meta).powers;
+  powerBarEl.hidden = unlocked.length === 0;
+  powerBarEl.innerHTML = unlocked
+    .map((id) => {
+      const def = powerDef(id);
+      const key = def.hotkey.replace("Digit", "");
+      return `
+        <button class="power-btn" data-power="${id}" title="${def.name} — ${def.description}">
+          <span class="power-cooldown"></span>
+          <span class="power-icon">${def.icon}</span>
+          <span class="power-name">${def.name}</span>
+          <span class="power-cost"></span>
+          <span class="power-key">${key}</span>
+        </button>`;
+    })
+    .join("");
+  if (unlocked.length > 0 && !settings.powersTutorialDone && !tutorial.active) powersTutorial.start();
+}
+
+powerBarEl.addEventListener("click", (e) => {
+  const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-power]");
+  if (btn) game.activatePower(btn.dataset.power as PowerId);
+});
+
+// Chamado a cada frame pelo Game: custo atual, recarga (faixa escura que
+// esvazia), efeito ativo e mira.
+function updatePowerBar(powers: PowerUiState[]): void {
+  for (const p of powers) {
+    const btn = powerBarEl.querySelector<HTMLButtonElement>(`[data-power="${p.id}"]`);
+    if (!btn) continue;
+    const onCooldown = p.cooldownLeft > 0;
+    btn.classList.toggle("unavailable", onCooldown || !p.affordable);
+    btn.classList.toggle("targeting", p.targeting);
+    btn.classList.toggle("active", p.activeLeft > 0);
+    btn.querySelector<HTMLElement>(".power-cooldown")!.style.height = onCooldown ? `${(p.cooldownLeft / p.cooldown) * 100}%` : "0";
+    const costEl = btn.querySelector<HTMLElement>(".power-cost")!;
+    const text = p.activeLeft > 0 ? `ativo ${Math.ceil(p.activeLeft)}s` : onCooldown ? `${Math.ceil(p.cooldownLeft)}s` : `${p.cost} Favor`;
+    if (costEl.textContent !== text) costEl.textContent = text;
+  }
+}
+
+
 // --- Cartão da torre selecionada: aparece ao lado dela, sobre o canvas ---
 
 const POPOVER_GAP = 10;
@@ -854,6 +921,7 @@ function showBlessingOffer(choices: BlessingId[]): void {
       game.chooseBlessing(btn.dataset.blessing as BlessingId);
     });
   }
+
   blessingOverlay.classList.add("visible");
   audio.blessing();
 }
@@ -898,6 +966,7 @@ restartBtn.addEventListener("click", () => {
   const first = firstOfTeam(runTeam);
   game.selectTowerKind(first);
   setActiveTowerButton(first);
+  startRunExtras();
 });
 
 goMenuBtn.addEventListener("click", () => {

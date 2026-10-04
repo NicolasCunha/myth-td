@@ -268,6 +268,20 @@ export class AudioEngine {
   blessing(): void {
     [440, 554, 659, 880].forEach((f, i) => this.tone(f, 0.35, "sine", 0.1, i * 0.07));
   }
+  // Poderes divinos — cada um com uma assinatura sonora própria.
+  power(id: "zeusWrath" | "aegis" | "chronos" | "tidalWave"): void {
+    if (id === "zeusWrath") {
+      this.sweep(1400, 90, 0.35, "sawtooth", 0.18); // estalo do raio descendo
+      this.tone(70, 0.5, "sine", 0.3, 0.05); // trovão
+    } else if (id === "aegis") {
+      [523, 784, 1047].forEach((f) => this.tone(f, 0.6, "triangle", 0.1)); // acorde brilhante
+    } else if (id === "chronos") {
+      this.sweep(880, 220, 0.8, "sine", 0.16); // tudo desacelera
+    } else {
+      this.sweep(90, 300, 0.5, "triangle", 0.22); // onda subindo
+      this.sweep(300, 60, 0.7, "sine", 0.15);
+    }
+  }
   purchase(): void {
     this.tone(660, 0.06, "triangle", 0.18);
     this.tone(880, 0.08, "triangle", 0.15, 0.05);

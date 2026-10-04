@@ -514,7 +514,7 @@ canvas {
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: 230px;
+  width: 210px; /* 6 colunas cabem lado a lado em 1400px */
   flex-shrink: 0;
 }
 
@@ -1329,4 +1329,90 @@ canvas {
   width: 100%;
   font-size: 11px;
   color: #7fbf94;
+}
+
+/* --- Barra de poderes divinos (abaixo do mapa) --- */
+
+.power-bar {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.power-btn {
+  position: relative;
+  overflow: hidden;
+  width: 120px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-areas:
+    "icon name"
+    "icon cost";
+  column-gap: 8px;
+  align-items: center;
+  padding: 7px 10px;
+  background: #131722;
+  border: 1px solid #a97f3a;
+  border-radius: 8px;
+  color: #e8e6df;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.power-btn:hover:not(.unavailable) {
+  border-color: #ffd75e;
+}
+
+.power-icon {
+  grid-area: icon;
+  font-size: 22px;
+}
+
+.power-name {
+  grid-area: name;
+  font-size: 12px;
+  font-weight: 600;
+  color: #f2c879;
+  white-space: nowrap;
+}
+
+.power-cost {
+  grid-area: cost;
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.power-key {
+  position: absolute;
+  top: 3px;
+  right: 6px;
+  font-size: 10px;
+  opacity: 0.55;
+}
+
+/* Recarga: faixa escura que esvazia de cima pra baixo. */
+.power-cooldown {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 0;
+  background: rgba(5, 6, 10, 0.65);
+  pointer-events: none;
+}
+
+.power-btn.unavailable {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.power-btn.targeting {
+  border-color: #d8f3ff;
+  box-shadow: 0 0 12px rgba(216, 243, 255, 0.55);
+}
+
+.power-btn.active {
+  border-color: #ffd75e;
+  box-shadow: 0 0 12px rgba(255, 215, 94, 0.5);
 }

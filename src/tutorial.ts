@@ -16,7 +16,8 @@ interface Step {
   onEnter?: (hooks: TutorialHooks) => void; // ação ao abrir o passo
 }
 
-const STEPS: Step[] = [
+// Tutorial da primeira run.
+export const MAIN_STEPS: Step[] = [
   {
     title: "Bem-vindo ao Myth TD!",
     text: "Inimigos surgem em todas as bordas do mapa e marcham até o <b>núcleo dourado</b> no centro. Se a vida dele chegar a zero, a run acaba. Sobreviva 10 minutos para vencer.",
@@ -88,6 +89,17 @@ const STEPS: Step[] = [
   },
 ];
 
+// Dica única da primeira run com algum poder divino liberado na árvore.
+export const POWERS_STEPS: Step[] = [
+  {
+    title: "Poderes divinos",
+    text: "Você liberou poderes na árvore de Melhorias! Eles ficam na <b>barra abaixo do mapa</b> (teclas <b>1–4</b>) e custam Favor — cada uso na run encarece o próximo, e há uma recarga curta. A <b>Ira de Zeus</b> pede um clique no mapa pra escolher onde o raio cai (Esc cancela). Passe o mouse num poder pra ver o que ele faz.",
+    target: "#power-bar",
+    advance: "next",
+    pause: true,
+  },
+];
+
 const HIGHLIGHT_CLASS = "tutorial-highlight";
 
 export interface TutorialHooks {
@@ -98,12 +110,14 @@ export interface TutorialHooks {
 
 export class Tutorial {
   private readonly hooks: TutorialHooks;
+  private readonly steps: Step[];
   private index = -1;
   private box: HTMLDivElement | null = null;
   private highlighted: Element | null = null;
 
-  constructor(hooks: TutorialHooks) {
+  constructor(hooks: TutorialHooks, steps: Step[] = MAIN_STEPS) {
     this.hooks = hooks;
+    this.steps = steps;
   }
 
   get active(): boolean {
@@ -127,8 +141,8 @@ export class Tutorial {
   // escolher a torre no menu), pula os passos de ação já cumpridos.
   notify(event: TutorialEvent): void {
     if (!this.active) return;
-    for (let i = this.index; i < STEPS.length; i++) {
-      const step = STEPS[i];
+    for (let i = this.index; i < this.steps.length; i++) {
+      const step = this.steps[i];
       if (step.advance === event) {
         this.goTo(i + 1);
         return;
@@ -138,7 +152,7 @@ export class Tutorial {
   }
 
   private goTo(index: number): void {
-    if (index >= STEPS.length) {
+    if (index >= this.steps.length) {
       this.finish();
       return;
     }
@@ -161,7 +175,7 @@ export class Tutorial {
   }
 
   private render(): void {
-    const step = STEPS[this.index];
+    const step = this.steps[this.index];
     this.hooks.setPaused(step.pause);
     step.onEnter?.(this.hooks);
 
@@ -174,10 +188,10 @@ export class Tutorial {
       this.box.className = "tutorial-box";
       document.body.appendChild(this.box);
     }
-    const isLast = this.index === STEPS.length - 1;
+    const isLast = this.index === this.steps.length - 1;
     const waiting = step.advance === "next" ? "" : `<div class="tutorial-waiting">Aguardando você…</div>`;
     this.box.innerHTML = `
-      <div class="tutorial-progress">Tutorial · ${this.index + 1}/${STEPS.length}</div>
+      <div class="tutorial-progress">${this.steps.length > 1 ? `Tutorial · ${this.index + 1}/${this.steps.length}` : "Dica"}</div>
       <h3>${step.title}</h3>
       <p>${step.text}</p>
       ${waiting}
