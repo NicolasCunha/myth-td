@@ -193,6 +193,7 @@ export interface SaveData {
   bossSpawned: boolean;
   bossDefeated: boolean;
   selectedKind: TowerKind;
+  team?: TowerKind[]; // equipe levada pra run (ausente em saves de antes do team builder)
   towers: SavedTower[];
   enemies: SavedEnemy[];
 }

@@ -456,7 +456,9 @@ canvas {
 
 /* --- Tela de Melhorias: árvore de habilidades, uma coluna por branch --- */
 
-#upgrades {
+#upgrades,
+#team,
+#shop {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -645,4 +647,155 @@ canvas {
   .tower-grid {
     grid-template-columns: repeat(4, 1fr);
   }
+}
+
+/* --- Equipe e Loja: cartas de torre agrupadas por panteão --- */
+
+.menu-warning {
+  margin: 0;
+  font-size: 13px;
+  color: #ff9b7a;
+}
+
+.team-intro {
+  margin: 0;
+  max-width: 640px;
+  text-align: center;
+  font-size: 13px;
+  opacity: 0.7;
+}
+
+.team-slots {
+  display: grid;
+  grid-template-columns: repeat(10, 104px);
+  gap: 8px;
+}
+
+.team-slot {
+  height: 84px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: #1c2130;
+  border: 1px solid #f2c879;
+  border-radius: 10px;
+  color: #e8e6df;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px;
+}
+
+.team-slot:hover {
+  border-color: #ff6b4a;
+}
+
+.team-slot.empty {
+  background: transparent;
+  border: 1px dashed #3a4256;
+  color: #6b7280;
+  cursor: default;
+}
+
+.team-slot .tower-icon {
+  width: 44px;
+  height: 44px;
+}
+
+.team-collection {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.team-collection .sidebar-section-title {
+  margin-top: 14px;
+  font-size: 12px;
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 10px;
+}
+
+.tower-card {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  background: #131722;
+  border: 1px solid #262c3b;
+  border-radius: 10px;
+  padding: 10px 12px;
+  transition: border-color 0.15s, background 0.15s, opacity 0.15s;
+}
+
+.tower-card .tower-icon {
+  width: 56px;
+  height: 56px;
+}
+
+.tower-card-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tower-card-name {
+  font-weight: 600;
+  color: #f2c879;
+  font-size: 14px;
+}
+
+.tower-card-desc {
+  font-size: 12px;
+  line-height: 1.4;
+  opacity: 0.75;
+}
+
+.tower-card-tag {
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.tower-card .node-buy {
+  margin-top: 6px;
+}
+
+.tower-card.selectable {
+  cursor: pointer;
+}
+
+.tower-card.selectable:hover {
+  border-color: #3a4256;
+}
+
+.tower-card.selected {
+  border-color: #f2c879;
+  background: #1c2130;
+}
+
+.tower-card.selected .tower-card-tag,
+.owned-tag {
+  color: #7fbf94;
+  opacity: 1;
+}
+
+.tower-card.owned {
+  border-color: #3f6b4f;
+}
+
+.tower-card.disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.tower-card.locked {
+  opacity: 0.4;
+  filter: grayscale(0.8);
 }

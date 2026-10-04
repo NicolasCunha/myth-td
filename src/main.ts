@@ -3,6 +3,7 @@ import { Game, MAX_TOWERS, type SelectedTowerInfo } from "./game/Game";
 import { saveGame, loadGame, hasSavedGame } from "./game/save";
 import { buildSprites, buildTowerIcon } from "./game/sprites";
 import { AudioEngine } from "./game/audio";
+import { TEAM_SIZE, loadTeam, saveTeam } from "./game/team";
 import {
   UPGRADES,
   loadMeta,
@@ -14,6 +15,9 @@ import {
   isMaxed,
   nextLevelCost,
   tryPurchase,
+  isTowerUnlocked,
+  tryUnlockTower,
+  TOWER_PRICES,
   type UpgradeDef,
   type UpgradeId,
 } from "./game/meta";
@@ -57,7 +61,9 @@ const BRANCH_TITLES: Record<UpgradeDef["branch"], string> = {
   ambrosia: "Ambrosia",
 };
 
-type View = "menu" | "play" | "upgrades";
+type View = "menu" | "play" | "upgrades" | "team" | "shop";
+
+const optionFor = (kind: TowerKind) => TOWER_OPTIONS.find((t) => t.kind === kind)!;
 
 function towerSlotHtml(t: (typeof TOWER_OPTIONS)[number], active: boolean): string {
   return `
@@ -81,8 +87,11 @@ app.innerHTML = `
     <div class="menu-actions">
       <button id="menu-new">Novo Jogo</button>
       <button id="menu-load">Carregar Jogo</button>
+      <button id="menu-team">Equipe <span id="menu-team-badge"></span></button>
+      <button id="menu-shop">Loja</button>
       <button id="menu-upgrades">Melhorias <span id="menu-ambrosia-badge"></span></button>
     </div>
+    <p class="menu-warning" id="menu-team-warning" hidden>Monte sua equipe antes de começar uma run.</p>
     <button id="mute-btn-menu" class="mute-btn" title="Silenciar áudio">🔊</button>
   </div>
 
@@ -110,17 +119,7 @@ app.innerHTML = `
     </div>
     <div class="game-layout">
       <aside class="tower-sidebar">
-        ${(Object.keys(TOWER_GROUP_TITLES) as TowerGroup[])
-          .map(
-            (group) => `
-          <h3 class="sidebar-section-title">${TOWER_GROUP_TITLES[group]}</h3>
-          <div class="tower-grid">
-            ${TOWER_OPTIONS.filter((t) => t.group === group)
-              .map((t) => towerSlotHtml(t, t.kind === "zeus"))
-              .join("")}
-          </div>`,
-          )
-          .join("")}
+        <div id="sidebar-groups"></div>
         <div class="tower-count" id="tower-count">Torres: <b>0/${MAX_TOWERS}</b></div>
       </aside>
       <div class="game-main">
@@ -137,6 +136,28 @@ app.innerHTML = `
       <button id="upgrades-back">Voltar</button>
     </div>
     <div class="tree" id="upgrade-tree"></div>
+  </div>
+
+  <div id="team" hidden>
+    <div class="upgrades-header">
+      <h1>Equipe</h1>
+      <div class="ambrosia-display">Selecionadas: <b id="team-count">0/${TEAM_SIZE}</b></div>
+      <button id="team-clear">Limpar</button>
+      <button id="team-back">Voltar</button>
+    </div>
+    <p class="team-intro">Escolha até ${TEAM_SIZE} deuses pra levar pra run — só eles vão aparecer no menu lateral durante o jogo. Clique numa carta pra adicionar ou remover.</p>
+    <div class="team-slots" id="team-slots"></div>
+    <div class="team-collection" id="team-collection"></div>
+  </div>
+
+  <div id="shop" hidden>
+    <div class="upgrades-header">
+      <h1>Loja</h1>
+      <div class="ambrosia-display">🍯 <b id="shop-ambrosia">0</b> Ambrosia</div>
+      <button id="shop-back">Voltar</button>
+    </div>
+    <p class="team-intro">Desbloqueie deuses com Ambrosia. Torres compradas ficam liberadas pra sempre e podem entrar na sua Equipe.</p>
+    <div class="team-collection" id="shop-collection"></div>
   </div>
 
   <div id="game-over">
@@ -178,17 +199,78 @@ const goKills = document.querySelector<HTMLElement>("#go-kills")!;
 const goAmbrosia = document.querySelector<HTMLElement>("#go-ambrosia")!;
 const restartBtn = document.querySelector<HTMLButtonElement>("#go-restart")!;
 const goMenuBtn = document.querySelector<HTMLButtonElement>("#go-menu")!;
-const towerButtons = document.querySelectorAll<HTMLButtonElement>(".tower-btn");
+const sidebarGroupsEl = document.querySelector<HTMLDivElement>("#sidebar-groups")!;
 const towerCountEl = document.querySelector<HTMLElement>("#tower-count")!;
+const teamView = document.querySelector<HTMLDivElement>("#team")!;
+const menuTeamBtn = document.querySelector<HTMLButtonElement>("#menu-team")!;
+const menuTeamBadge = document.querySelector<HTMLElement>("#menu-team-badge")!;
+const menuTeamWarning = document.querySelector<HTMLElement>("#menu-team-warning")!;
+const teamCountEl = document.querySelector<HTMLElement>("#team-count")!;
+const teamSlotsEl = document.querySelector<HTMLDivElement>("#team-slots")!;
+const teamCollectionEl = document.querySelector<HTMLDivElement>("#team-collection")!;
+const teamClearBtn = document.querySelector<HTMLButtonElement>("#team-clear")!;
+const teamBackBtn = document.querySelector<HTMLButtonElement>("#team-back")!;
+const shopView = document.querySelector<HTMLDivElement>("#shop")!;
+const menuShopBtn = document.querySelector<HTMLButtonElement>("#menu-shop")!;
+const shopAmbrosiaEl = document.querySelector<HTMLElement>("#shop-ambrosia")!;
+const shopCollectionEl = document.querySelector<HTMLDivElement>("#shop-collection")!;
+const shopBackBtn = document.querySelector<HTMLButtonElement>("#shop-back")!;
 
-// Ícones da sidebar: um "retrato" (topo da sprite, cabeça/cocar/ombros) por
-// torre — bem mais fácil de identificar do que um emoji genérico.
+// Botões de torre da sidebar — recriados a cada run, conforme a equipe levada.
+let towerButtons: HTMLButtonElement[] = [];
+let lastBuiltKinds = new Set<TowerKind>();
+
+// Ícones: um "retrato" (topo da sprite, cabeça/cocar/ombros) por torre —
+// bem mais fácil de identificar do que um emoji genérico.
 const iconSprites = buildSprites();
-for (const t of TOWER_OPTIONS) {
-  const iconCanvas = document.querySelector<HTMLCanvasElement>(`canvas.tower-icon[data-kind="${t.kind}"]`)!;
-  const ictx = iconCanvas.getContext("2d")!;
-  ictx.imageSmoothingEnabled = false;
-  ictx.drawImage(buildTowerIcon(iconSprites.towers[t.kind].body, 36), 0, 0);
+function paintIcons(root: ParentNode): void {
+  for (const iconCanvas of root.querySelectorAll<HTMLCanvasElement>("canvas.tower-icon")) {
+    const kind = iconCanvas.dataset.kind as TowerKind;
+    const ictx = iconCanvas.getContext("2d")!;
+    ictx.imageSmoothingEnabled = false;
+    ictx.drawImage(buildTowerIcon(iconSprites.towers[kind].body, iconCanvas.width), 0, 0);
+  }
+}
+
+let meta = loadMeta();
+let team = loadTeam(meta.unlockedTowers);
+let runTeam: TowerKind[] = [...team]; // equipe da run em andamento (fixa até a run acabar)
+
+// Monta a sidebar só com as torres da equipe levada pra run, agrupadas por
+// panteão (grupos sem nenhuma torre da equipe não aparecem).
+function renderSidebar(runTeam: TowerKind[], selected: TowerKind): void {
+  sidebarGroupsEl.innerHTML = (Object.keys(TOWER_GROUP_TITLES) as TowerGroup[])
+    .map((group) => {
+      const members = TOWER_OPTIONS.filter((t) => t.group === group && runTeam.includes(t.kind));
+      if (members.length === 0) return "";
+      return `
+        <h3 class="sidebar-section-title">${TOWER_GROUP_TITLES[group]}</h3>
+        <div class="tower-grid">${members.map((t) => towerSlotHtml(t, t.kind === selected)).join("")}</div>`;
+    })
+    .join("");
+  paintIcons(sidebarGroupsEl);
+
+  towerButtons = [...sidebarGroupsEl.querySelectorAll<HTMLButtonElement>(".tower-btn")];
+  for (const btn of towerButtons) {
+    btn.addEventListener("click", () => {
+      setActiveTowerButton(btn.dataset.kind as TowerKind);
+      game.selectTowerKind(btn.dataset.kind as TowerKind);
+    });
+  }
+  applyBuiltKinds();
+}
+
+function applyBuiltKinds(): void {
+  for (const btn of towerButtons) {
+    const already = lastBuiltKinds.has(btn.dataset.kind as TowerKind);
+    btn.disabled = already;
+    btn.classList.toggle("built", already);
+  }
+}
+
+// Torre selecionada ao começar uma run: a primeira da equipe, na ordem do catálogo.
+function firstOfTeam(runTeam: TowerKind[]): TowerKind {
+  return TOWER_OPTIONS.find((t) => runTeam.includes(t.kind))!.kind;
 }
 
 const hud = {
@@ -199,7 +281,6 @@ const hud = {
   nextCost: document.querySelector<HTMLElement>("#hud-cost")!,
 };
 
-let meta = loadMeta();
 const audio = new AudioEngine();
 
 const game = new Game(canvas, hud, {
@@ -216,12 +297,8 @@ const game = new Game(canvas, hud, {
     saveBtn.disabled = true;
   },
   onTowersChanged: (builtKinds, towerCount) => {
-    for (const btn of towerButtons) {
-      const kind = btn.dataset.kind as TowerKind;
-      const already = builtKinds.has(kind);
-      btn.disabled = already;
-      btn.classList.toggle("built", already);
-    }
+    lastBuiltKinds = builtKinds;
+    applyBuiltKinds();
     towerCountEl.innerHTML = `Torres: <b>${towerCount}/${MAX_TOWERS}</b>`;
     towerCountEl.classList.toggle("full", towerCount >= MAX_TOWERS);
   },
@@ -247,10 +324,15 @@ function showView(view: View): void {
   menu.hidden = view !== "menu";
   play.hidden = view !== "play";
   upgradesView.hidden = view !== "upgrades";
+  teamView.hidden = view !== "team";
+  shopView.hidden = view !== "shop";
   overlay.classList.remove("visible");
 
   if (view === "menu") {
     menuLoadBtn.disabled = !hasSavedGame();
+    menuNewBtn.disabled = team.length === 0;
+    menuTeamWarning.hidden = team.length > 0;
+    menuTeamBadge.textContent = `(${team.length}/${TEAM_SIZE})`;
     menuAmbrosiaBadge.textContent = `(${Math.floor(meta.ambrosia)} 🍯)`;
     audio.stopMusic();
   } else if (view === "play") {
@@ -280,12 +362,17 @@ muteBtnMenu.addEventListener("click", toggleMute);
 muteBtnPlay.addEventListener("click", toggleMute);
 
 menuNewBtn.addEventListener("click", () => {
+  if (team.length === 0) return;
   audio.unlock();
   audio.click();
+  runTeam = [...team];
+  const first = firstOfTeam(runTeam);
+  renderSidebar(runTeam, first);
   game.setMeta(computeMetaModifiers(meta));
   resetSpeedToNormal(); // sempre começa em 1x, não na velocidade da run anterior
   showView("play");
   game.reset();
+  game.selectTowerKind(first);
 });
 
 menuLoadBtn.addEventListener("click", () => {
@@ -293,11 +380,39 @@ menuLoadBtn.addEventListener("click", () => {
   audio.click();
   const data = loadGame();
   if (!data) return;
+  // Saves de antes da equipe existir: leva a equipe atual + o que já estava construído.
+  runTeam = data.team ?? [...new Set([...team, ...data.towers.map((t) => t.kind), data.selectedKind])];
+  renderSidebar(runTeam, data.selectedKind);
   game.setMeta(computeMetaModifiers(meta));
   resetSpeedToNormal();
   showView("play");
   game.loadFrom(data);
-  setActiveTowerButton(data.selectedKind);
+});
+
+menuTeamBtn.addEventListener("click", () => {
+  audio.unlock();
+  audio.click();
+  showView("team");
+  renderTeam();
+});
+
+teamBackBtn.addEventListener("click", () => {
+  audio.click();
+  showView("menu");
+});
+
+teamClearBtn.addEventListener("click", () => {
+  audio.click();
+  team = [];
+  saveTeam(team);
+  renderTeam();
+});
+
+menuShopBtn.addEventListener("click", () => {
+  audio.unlock();
+  audio.click();
+  showView("shop");
+  renderShop();
 });
 
 menuUpgradesBtn.addEventListener("click", () => {
@@ -314,7 +429,7 @@ upgradesBackBtn.addEventListener("click", () => {
 
 saveBtn.addEventListener("click", () => {
   audio.click();
-  saveGame(game.serialize());
+  saveGame({ ...game.serialize(), team: runTeam });
   const original = saveBtn.textContent;
   saveBtn.textContent = "✅ Salvo!";
   setTimeout(() => {
@@ -341,25 +456,121 @@ for (const btn of speedButtons) {
   });
 }
 
-for (const btn of towerButtons) {
-  btn.addEventListener("click", () => {
-    setActiveTowerButton(btn.dataset.kind as TowerKind);
-    game.selectTowerKind(btn.dataset.kind as TowerKind);
-  });
-}
-
 restartBtn.addEventListener("click", () => {
   audio.click();
   game.setMeta(computeMetaModifiers(meta));
   resetSpeedToNormal();
   overlay.classList.remove("visible");
   game.reset();
+  // Mesma equipe da run anterior; volta a selecionar a primeira torre.
+  const first = firstOfTeam(runTeam);
+  game.selectTowerKind(first);
+  setActiveTowerButton(first);
 });
 
 goMenuBtn.addEventListener("click", () => {
   audio.click();
   showView("menu");
 });
+
+shopBackBtn.addEventListener("click", () => {
+  audio.click();
+  showView("menu");
+});
+
+// --- Equipe e Loja: cartas de torre agrupadas por panteão ---
+
+function towerCardHtml(t: (typeof TOWER_OPTIONS)[number], classes: string, footer: string): string {
+  return `
+    <div class="tower-card ${classes}" data-kind="${t.kind}">
+      <canvas class="tower-icon" data-kind="${t.kind}" width="56" height="56"></canvas>
+      <div class="tower-card-body">
+        <div class="tower-card-name">${t.name}</div>
+        <div class="tower-card-desc">${t.description}</div>
+        ${footer}
+      </div>
+    </div>`;
+}
+
+function groupedCardsHtml(card: (t: (typeof TOWER_OPTIONS)[number]) => string): string {
+  return (Object.keys(TOWER_GROUP_TITLES) as TowerGroup[])
+    .map(
+      (group) => `
+      <h3 class="sidebar-section-title">${TOWER_GROUP_TITLES[group]}</h3>
+      <div class="card-grid">${TOWER_OPTIONS.filter((t) => t.group === group).map(card).join("")}</div>`,
+    )
+    .join("");
+}
+
+function toggleTeamMember(kind: TowerKind): void {
+  if (team.includes(kind)) {
+    team = team.filter((k) => k !== kind);
+  } else {
+    if (team.length >= TEAM_SIZE || !isTowerUnlocked(meta, kind)) return;
+    team = [...team, kind];
+  }
+  saveTeam(team);
+  audio.click();
+  renderTeam();
+}
+
+function renderTeam(): void {
+  teamCountEl.textContent = `${team.length}/${TEAM_SIZE}`;
+  const full = team.length >= TEAM_SIZE;
+
+  // Vagas da equipe: preenchidas na ordem de escolha; clicar remove.
+  teamSlotsEl.innerHTML = Array.from({ length: TEAM_SIZE }, (_, i) => {
+    const kind = team[i];
+    if (!kind) return `<div class="team-slot empty">Vaga ${i + 1}</div>`;
+    return `
+      <button class="team-slot" data-kind="${kind}" title="Remover ${optionFor(kind).name} da equipe">
+        <canvas class="tower-icon" data-kind="${kind}" width="44" height="44"></canvas>
+        <span>${optionFor(kind).name}</span>
+      </button>`;
+  }).join("");
+
+  teamCollectionEl.innerHTML = groupedCardsHtml((t) => {
+    if (!isTowerUnlocked(meta, t.kind)) {
+      return towerCardHtml(t, "locked", `<div class="tower-card-tag">🔒 Desbloqueie na Loja (${TOWER_PRICES[t.kind]} 🍯)</div>`);
+    }
+    const inTeam = team.includes(t.kind);
+    const tag = inTeam ? "✓ Na equipe" : full ? "Equipe cheia" : "Clique pra adicionar";
+    return towerCardHtml(t, `selectable${inTeam ? " selected" : ""}${!inTeam && full ? " disabled" : ""}`, `<div class="tower-card-tag">${tag}</div>`);
+  });
+
+  paintIcons(teamView);
+  for (const el of teamView.querySelectorAll<HTMLElement>(".team-slot[data-kind], .tower-card.selectable")) {
+    el.addEventListener("click", () => toggleTeamMember(el.dataset.kind as TowerKind));
+  }
+}
+
+function renderShop(): void {
+  shopAmbrosiaEl.textContent = String(Math.floor(meta.ambrosia));
+  shopCollectionEl.innerHTML = groupedCardsHtml((t) => {
+    if (isTowerUnlocked(meta, t.kind)) {
+      return towerCardHtml(t, "owned", `<div class="tower-card-tag owned-tag">✓ Liberada</div>`);
+    }
+    const price = TOWER_PRICES[t.kind];
+    const affordable = meta.ambrosia >= price;
+    return towerCardHtml(t, "", `<button class="node-buy" data-buy-tower="${t.kind}" ${affordable ? "" : "disabled"}>Comprar — ${price} 🍯</button>`);
+  });
+
+  paintIcons(shopView);
+  for (const btn of shopCollectionEl.querySelectorAll<HTMLButtonElement>("[data-buy-tower]")) {
+    btn.addEventListener("click", () => {
+      const kind = btn.dataset.buyTower as TowerKind;
+      if (!tryUnlockTower(meta, kind)) return;
+      // Recém-comprada entra direto na equipe se ainda houver vaga.
+      if (team.length < TEAM_SIZE) {
+        team = [...team, kind];
+        saveTeam(team);
+      }
+      saveMeta(meta);
+      audio.purchase();
+      renderShop();
+    });
+  }
+}
 
 // --- Tela de Melhorias: árvore de habilidades, uma coluna por branch ---
 
@@ -407,7 +618,7 @@ function renderNode(def: UpgradeDef): string {
 
   let extra = "";
   if (def.id === "mythicDuplicate" && level > 0) {
-    const options = TOWER_OPTIONS.filter((t) => !PASSIVE_KINDS.includes(t.kind))
+    const options = TOWER_OPTIONS.filter((t) => !PASSIVE_KINDS.includes(t.kind) && isTowerUnlocked(meta, t.kind))
       .map((t) => `<option value="${t.kind}" ${meta.duplicateTowerKind === t.kind ? "selected" : ""}>${t.name}</option>`)
       .join("");
     extra = `<label class="duplicate-select-label">Torre escolhida:<select id="duplicate-kind-select">${options}</select></label>`;

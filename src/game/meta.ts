@@ -34,6 +34,7 @@ export interface MetaState {
   ambrosia: number;
   upgrades: Partial<Record<UpgradeId, number>>;
   duplicateTowerKind: TowerKind | null;
+  unlockedTowers: TowerKind[]; // torres compradas na Loja (Zeus vem liberado)
 }
 
 // Efeitos já resolvidos a partir do MetaState — é isso que o Game consome,
@@ -192,8 +193,51 @@ export const UPGRADES: UpgradeDef[] = [
 
 const META_KEY = "myth-td-meta-v1";
 
+// --- Loja de torres ---
+// Só Zeus vem liberado; o resto é desbloqueado permanentemente com Ambrosia.
+// Preços calibrados com simulação headless (bot que constrói/melhora/escolhe
+// bênçãos): run só com Zeus rende ~55 Ambrosia (compra Ártemis na 1ª run),
+// Zeus+Ártemis ~135, 3 torres ~180 — o elenco grego completo sai em ~6-8 runs.
+// Hades é o mais caro do tier grego por ser a torre mais impactante.
+export const STARTER_TOWERS: readonly TowerKind[] = ["zeus"];
+
+export const TOWER_PRICES: Record<TowerKind, number> = {
+  zeus: 0,
+  artemis: 50,
+  demeter: 60,
+  ares: 80,
+  poseidon: 90,
+  athena: 110,
+  hermes: 160,
+  hera: 180,
+  hades: 220,
+  thor: 150,
+  bastet: 150,
+  isis: 160,
+  anubis: 170,
+  ra: 180,
+  horus: 200,
+  sobek: 200,
+  sekhmet: 220,
+  thoth: 220,
+};
+
+export function isTowerUnlocked(meta: MetaState, kind: TowerKind): boolean {
+  return meta.unlockedTowers.includes(kind);
+}
+
+// Tenta comprar uma torre na Loja; muda `meta` in-place e retorna se funcionou.
+export function tryUnlockTower(meta: MetaState, kind: TowerKind): boolean {
+  if (isTowerUnlocked(meta, kind)) return false;
+  const price = TOWER_PRICES[kind];
+  if (meta.ambrosia < price) return false;
+  meta.ambrosia -= price;
+  meta.unlockedTowers.push(kind);
+  return true;
+}
+
 function defaultMeta(): MetaState {
-  return { ambrosia: 0, upgrades: {}, duplicateTowerKind: null };
+  return { ambrosia: 0, upgrades: {}, duplicateTowerKind: null, unlockedTowers: [...STARTER_TOWERS] };
 }
 
 export function loadMeta(): MetaState {
@@ -205,6 +249,7 @@ export function loadMeta(): MetaState {
       ambrosia: parsed.ambrosia ?? 0,
       upgrades: parsed.upgrades ?? {},
       duplicateTowerKind: parsed.duplicateTowerKind ?? null,
+      unlockedTowers: [...new Set([...STARTER_TOWERS, ...(parsed.unlockedTowers ?? [])])],
     };
   } catch {
     return defaultMeta();
