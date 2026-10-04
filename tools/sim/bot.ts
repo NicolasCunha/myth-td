@@ -6,7 +6,7 @@ import { Game, type RunStats } from "../../src/game/Game";
 import { NO_META_MODIFIERS } from "../../src/game/meta";
 import type { BlessingId } from "../../src/game/blessings";
 import type { TowerKind } from "../../src/game/types";
-import { bestSpot } from "./placement";
+import { createPlacer } from "./placement";
 import { CELL, CORE_COL, CORE_ROW, cellCenter } from "../../src/game/grid";
 import { ZEUS_WRATH_RADIUS_CELLS, type PowerId } from "../../src/game/powers";
 import type { MetaModifiers } from "../../src/game/meta";
@@ -65,6 +65,7 @@ export function simulateRun(team: TowerKind[], options: BotOptions = {}): SimRes
   game.setTeam(team);
   game.reset();
   const queue = [...team];
+  const placer = createPlacer();
 
   while (!result && g.elapsed < maxTime) {
     // (atribuído no callback onBlessingOffer — o TS não enxerga essa mutação)
@@ -83,11 +84,12 @@ export function simulateRun(team: TowerKind[], options: BotOptions = {}): SimRes
 
     if (queue.length > 0 && g.favor >= g.nextTowerCost()) {
       const kind = queue.shift()!;
-      const spot = bestSpot(kind, (c, r) => g.towers.some((t: Internals) => t.col === c && t.row === r));
+      const spot = placer.bestSpot(kind, (c, r) => g.towers.some((t: Internals) => t.col === c && t.row === r));
       if (spot) {
         game.selectTowerKind(kind);
         g.placing = spot;
         g.confirmPlacement();
+        placer.markPlaced(kind, spot.col, spot.row, spot.facing);
       }
     } else if (upgrades) {
       const byLevel = [...g.towers].sort((a: Internals, b: Internals) => a.level - b.level);

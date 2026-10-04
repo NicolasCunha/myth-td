@@ -50,8 +50,8 @@ const GRID_SHARE = 1.45 / 2.05;
   }
 })();
 
-// Soma do tráfego nas células que a torre alcançaria ali.
-function coverage(kind: TowerKind, col: number, row: number, facing: Facing): number {
+// Células que a torre alcançaria ali.
+function coveredCells(kind: TowerKind, col: number, row: number, facing: Facing): [number, number][] {
   const { rangePattern, rangeCells } = towerRangeDef(kind);
   const cells: [number, number][] = [];
   if (rangePattern === "shape") {
@@ -74,10 +74,32 @@ function coverage(kind: TowerKind, col: number, row: number, facing: Facing): nu
       }
     }
   }
-  return cells.filter(([c, r]) => inBounds(c, r)).reduce((sum, [c, r]) => sum + traffic[r][c], 0);
+  return cells.filter(([c, r]) => inBounds(c, r));
 }
 
-export function bestSpot(kind: TowerKind, occupied: (col: number, row: number) => boolean): { col: number; row: number; facing: Facing } | null {
+// Quanto o tráfego de uma célula ainda vale pra cada torre que já a cobre:
+// o bot espalha as torres por corredores diferentes em vez de empilhar todas
+// na mesma fileira (como um jogador faria).
+const ALREADY_COVERED_WEIGHT = 0.5;
+
+// Posicionador de uma run: lembra o que já está coberto.
+export function createPlacer() {
+  const coverCount: number[][] = Array.from({ length: ROWS }, () => new Array<number>(COLS).fill(0));
+  const score = (kind: TowerKind, col: number, row: number, facing: Facing) =>
+    coveredCells(kind, col, row, facing).reduce((sum, [c, r]) => sum + traffic[r][c] * Math.pow(ALREADY_COVERED_WEIGHT, coverCount[r][c]), 0);
+  return {
+    bestSpot: (kind: TowerKind, occupied: (col: number, row: number) => boolean) => bestSpot(kind, occupied, score),
+    markPlaced(kind: TowerKind, col: number, row: number, facing: Facing): void {
+      for (const [c, r] of coveredCells(kind, col, row, facing)) coverCount[r][c] += 1;
+    },
+  };
+}
+
+function bestSpot(
+  kind: TowerKind,
+  occupied: (col: number, row: number) => boolean,
+  coverage: (kind: TowerKind, col: number, row: number, facing: Facing) => number,
+): { col: number; row: number; facing: Facing } | null {
   const passive = towerRangeDef(kind).rangePattern === "none";
   const facings: Facing[] = isDirectional(kind) ? ["up", "right", "down", "left"] : ["right"];
   let best: { col: number; row: number; facing: Facing } | null = null;

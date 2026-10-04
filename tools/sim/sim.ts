@@ -32,6 +32,7 @@ function report(label: string, team: TowerKind[], options: BotOptions = {}): voi
 
 const GREEKS: TowerKind[] = ["zeus", "artemis", "poseidon", "ares", "athena", "demeter", "hera", "hades", "hermes"];
 const EGYPTIANS: TowerKind[] = ["zeus", "horus", "sobek", "thoth", "anubis", "ra", "sekhmet", "hades", "hera", "hermes"];
+const NORSE: TowerKind[] = ["zeus", "ares", "fenrir", "odin", "skadi", "loki", "thor", "freya", "hades", "hera"];
 const MIXED: TowerKind[] = ["zeus", "artemis", "ares", "horus", "sobek", "thoth", "athena", "hades", "hera", "hermes"];
 
 console.log(`${runs} runs por cenário\n`);
@@ -50,6 +51,7 @@ if (group === "todos" || group === "times") {
   report("Gregos (9)", GREEKS);
   report("Misto grego/egípcio (10)", MIXED);
   report("Egípcios + passivas gregas (10)", EGYPTIANS);
+  report("Nórdicos + passivas gregas (10)", NORSE);
   report("Gregos sem upgrades/bênçãos", GREEKS, { upgrades: false, blessings: false });
   console.log();
 }
