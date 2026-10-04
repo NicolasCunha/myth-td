@@ -85,7 +85,7 @@ Cada torre representa uma figura mitológica, agrupada por **panteão** (grego, 
 
 **Navegação durante a run**: um botão "☰ Menu" na barra superior pausa a simulação e volta pro menu principal sem perder o progresso em memória (só não fica persistido até clicar em Salvar) — complementa Salvar/Carregar pra quem só quer sair rápido.
 
-- [ ] **Pendente — confirmar ao sair pro menu**: hoje "☰ Menu" volta direto, e o progresso só sobrevive em memória até fechar a aba (e se perde ao começar outra run). Ao clicar, o jogo deve pausar e abrir um diálogo com três opções: **Salvar e voltar ao menu**, **Voltar sem salvar** e **Cancelar** (fecha o diálogo e retoma a run). Se o jogador já salvou e nada mudou desde então, dá pra pular o diálogo e voltar direto.
+- [x] **Confirmar ao sair pro menu (implementado)**: "☰ Menu" pausa a run e abre um diálogo — **Salvar e voltar**, **Voltar sem salvar** ou **Cancelar** (retoma a run de onde parou). Se nada mudou desde o último save (mesmo tempo de jogo), volta direto sem perguntar.
 
 ## Inimigos e Ondas
 
@@ -123,19 +123,21 @@ Cada torre representa uma figura mitológica, agrupada por **panteão** (grego, 
   - *Incomuns*: Dízimo do Templo (-15% no custo de construir/melhorar), Núcleo Abençoado (+25 de vida máxima), Colheita de Almas (+50% de Favor por abate), Cajado de Asclépio (núcleo regenera 0.5/s), Golpe Esmagador (crítico x3 — só se já houver chance de crítico), Ira Crescente (+1,5% de dano por bênção possuída).
   - *Raras*: Projéteis Múltiplos (torres de alvo único acertam +1 inimigo), Ascensão (todas as torres sobem 1 nível de graça), Raio em Cadeia (15% de chance do acerto saltar pra um inimigo próximo com 40% do dano — desenhado em azul), Sentença de Thanatos (inimigos comuns abaixo de 10% de vida morrem na hora).
 - **Painel "Bônus ativos"** (barra lateral, `src/game/bonuses.ts`): mostra os totais efetivos que o jogador está recebendo — dano geral (Hera × meta × Ira Crescente) e extra por panteão, velocidade de ataque, crítico, alvos extras, Raio em Cadeia, execução, lentidão dos inimigos, Favor/s, Favor por abate, desconto, regeneração e vida máxima do núcleo (dano, cadência, Favor/s e vida máx. sempre; o resto só quando ativo). É a mesma fonte de valores que o combate usa. **Cada carta de bênção mostra o novo total** ao escolhê-la (ex.: "Velocidade de ataque: +8% → +16%", "Favor: 20 → 60", "6 torres sobem 1 nível").
-- **Balanceamento por simulação** (`npm run sim`, código em `tools/sim/`): roda o `Game` real em Node (DOM falso) com um bot que posiciona torres pelo "mapa de tráfego" (por onde os inimigos passam), constrói a equipe na ordem, melhora sempre a torre de menor nível e escolhe bênçãos por preferência. Grupos: `inicio` (economia da Loja), `times` (fim de run) e `bencaos` (impacto de cada bênção não-comum). Use ≥30 runs (`npm run sim -- times 30`) pra decidir — com 12 a variação é grande.
+- **Balanceamento por simulação** (`npm run sim`, código em `tools/sim/`): roda o `Game` real em Node (DOM falso) com um bot que posiciona torres pelo "mapa de tráfego" (por onde os inimigos passam), constrói a equipe na ordem, melhora sempre a torre de menor nível e escolhe bênçãos por preferência. Grupos: `inicio` (economia da Loja), `times` (fim de run), `poderes` (com vs. sem poderes divinos, bot com política simples de uso) e `bencaos` (impacto de cada bênção não-comum). Use ≥30 runs (`npm run sim -- times 30`) pra decidir — com 12 a variação é grande.
   - Referência atual: só Zeus ~55s / ~58 Ambrosia; Zeus+Ártemis ~1:27 / ~145; gregos completos vencem ~60% (97% chegam ao Tifão); time misto grego/egípcio ~43%; egípcios + passivas gregas ~10%. Upgrades sozinhos ou bênçãos sozinhas não vencem.
   - Ajustes motivados pela simulação: Hades (-50% → -35%), evolução (x2.6 → x2.2), Ira Crescente (3% → 1,5%), Raio em Cadeia (25%/50% → 15%/40%), Sentença de Thanatos (15% → 10%), dois buffs nos egípcios e toda a curva da fase final.
   - *Achado estrutural*: por volta dos 6min todas as torres já estão no nível máximo — a partir daí o jogador só cresce por bênçãos. Um destino de Favor pro fim da run (ex.: níveis além da evolução, consumíveis) ajudaria. Egípcios seguem abaixo dos gregos no fim de run.
 
-**Pendente — destino do Favor no fim da run (favor sink):** a simulação mostra times completos terminando a run com 10–16 mil de Favor sobrando, sem onde gastar depois que todas as torres evoluem (~6min). Duas adições planejadas, a calibrar com `npm run sim`:
+**Destino do Favor no fim da run (favor sink) — implementado.** Antes, times completos terminavam a run com 10–16 mil de Favor sobrando, sem onde gastar depois que todas as torres evoluíam (~6min). Duas adições resolvem isso (no simulador, o Favor sobrando cai pra ~1 mil):
 
-- [ ] **Poderes divinos ativos**: barra de 3–4 poderes acionados pelo jogador, pagos em Favor, com custo que sobe a cada uso na run (e recarga curta pra não virar spam). Dão decisões ativas justamente no fim tenso e conversam com os chefes ("guardo a Égide pro pisão do Tifão?"). Ideias iniciais:
-  - ⚡ **Ira de Zeus** — clica num ponto do mapa: dano em área ali.
-  - 🛡️ **Égide** — núcleo invulnerável por alguns segundos.
-  - ⏳ **Cronos** — todos os inimigos lentos por alguns segundos.
-  - 🌊 **Maremoto** — empurra os inimigos de volta rumo às bordas.
-- [ ] **Rerrolar bênçãos com Favor**: botão "🎲 Novas opções" na tela de bênção, que sorteia 3 cartas novas; custo crescente a cada reroll na run. Dá mais peso às raridades (caçar uma rara) e é um uso secundário de Favor.
+- [x] **Poderes divinos** (`src/game/powers.ts`): liberados na coluna **Poderes** da árvore de Melhorias (ver Meta-progressão). Na run, os liberados aparecem numa **barra abaixo do mapa** (teclas **1–4**; passar o mouse mostra o que fazem). Pagos em Favor: **cada uso na run multiplica o custo do próximo por 1.5**, e há uma recarga curta (faixa escura que esvazia no botão). Efeitos pensados pra continuar relevantes no fim da run:
+  - ⚡ **Ira de Zeus** (100 Favor, recarga 15s) — entra em modo de mira (câmera lenta, círculo seguindo o mouse, Esc cancela); o raio tira **60% da vida máxima** de cada inimigo na área (chefes e Tifão: 8%).
+  - 🛡️ **Égide** (150, 25s) — núcleo **invulnerável por 6s**, inclusive ao pisão de Tifão (domo dourado).
+  - ⏳ **Cronos** (120, 20s) — todos os inimigos **65% mais lentos por 6s** (tela levemente azulada).
+  - 🌊 **Maremoto** (150, 25s) — onda saindo do núcleo empurra os inimigos **3 casas** rumo às bordas (chefes: 1).
+  - Na primeira run com algum poder liberado, uma dica única apresenta a barra.
+  - Simulação (bot com política simples de uso): taxa de vitória sobe modestamente (misto 40% → 50%, egípcios 5% → 15%; gregos dentro da variação) — ajudam sem desequilibrar.
+- [x] **Rerrolar bênçãos com Favor**: botão "🎲 Novas opções" na tela de bênção sorteia 3 cartas novas (mesma regra de raridade). Custo dobra a cada reroll na run (25, 50, 100...); o botão mostra o custo e o Favor atual.
 
 ## Meta-progressão
 
@@ -143,7 +145,7 @@ Cada torre representa uma figura mitológica, agrupada por **panteão** (grego, 
 
 **Fórmula de ganho** (base, antes de modificadores da própria árvore): `floor(tempo_sobrevivido / 10) + abates × 2`. Ou seja, 10s sobrevividos = 1 Ambrosia, cada abate = 2 Ambrosia. Modificada por Plantação de Ambrosia (%), Colheita do Chefe (+50% se o chefe for derrotado) e Favor em Ambrosia (converte Favor que sobrou no fim da run) — ver árvore abaixo.
 
-**Tela de Melhorias**: acessível pelo menu principal, apresentada como uma árvore de habilidades com 5 ramos (colunas) — Favor, Dano, Velocidade, Mítico, Ambrosia —, lado a lado (nunca empilhados verticalmente — a tela rola na horizontal se não couber), cada um partindo de um nó raiz. Os nós filhos têm pré-requisito de nível no nó pai (ex.: só aparecem compráveis depois que o pai atinge X níveis) — é assim que a árvore "ramifica" a partir dos nós raízes originais. **Velocidade de Ataque** começou como filha de Dano das Torres mas virou raiz do próprio ramo — empilhada, ela acabava escondida embaixo de Golpe Perfurante em vez de ficar lado a lado.
+**Tela de Melhorias**: acessível pelo menu principal, apresentada como uma árvore de habilidades com 6 ramos (colunas) — Favor, Dano, Velocidade, Mítico, Ambrosia, Poderes —, lado a lado (se a janela for estreita demais, as colunas quebram de linha em vez de rolar na horizontal), cada um partindo de um nó raiz. Os nós filhos têm pré-requisito de nível no nó pai (ex.: só aparecem compráveis depois que o pai atinge X níveis) — é assim que a árvore "ramifica" a partir dos nós raízes originais. **Velocidade de Ataque** começou como filha de Dano das Torres mas virou raiz do próprio ramo — empilhada, ela acabava escondida embaixo de Golpe Perfurante em vez de ficar lado a lado.
 
 | Ramo | Nó | Pré-requisito | Níveis | Custo por nível | Efeito no nível máximo |
 | --- | --- | --- | --- | --- | --- |
@@ -159,6 +161,10 @@ Cada torre representa uma figura mitológica, agrupada por **panteão** (grego, 
 | Ambrosia | **Plantação de Ambrosia** (raiz) | — | 5 (não cumulativo) | 40× o nível (40, 80... 200) | +25% de Ambrosia ganha ao fim da run |
 | Ambrosia | Colheita do Chefe | Plantação nível 3 | 1 | 300 | +50% de Ambrosia se o chefe for derrotado na run |
 | Ambrosia | Favor em Ambrosia | **Colheita do Chefe** nível 1 | 2 | 150 / 300 | Favor restante no fim da run vira Ambrosia (20:1 → 10:1 no nível 2) |
+| Poderes | **Poder: Ira de Zeus** (raiz) | — | 1 | 250 | Libera a Ira de Zeus na run (tecla 1) |
+| Poderes | Poder: Égide | Ira de Zeus | 1 | 400 | Libera a Égide (tecla 2) |
+| Poderes | Poder: Cronos | Égide | 1 | 500 | Libera Cronos (tecla 3) |
+| Poderes | Poder: Maremoto | Cronos | 1 | 650 | Libera o Maremoto (tecla 4) |
 
 *Correção de design*: "Favor em Ambrosia" inicialmente dependia só de Plantação de Ambrosia nível 1, o que deixava ela disponível sem precisar de Colheita do Chefe — corrigido para depender de Colheita do Chefe nível 1, fazendo o ramo Ambrosia virar uma cadeia linear de verdade (raiz → Colheita → Favor em Ambrosia).
 
@@ -248,7 +254,7 @@ Fica fora do MVP (futuro, pós-Fase 3): múltiplos mapas/grids, modos de dificul
 
 - [ ] Dimensão exata do grid (NxM) — validar em playtest qual tamanho equilibra legibilidade e espaço tático.
 - [ ] Pathfinding dos inimigos ao redor de torres — definir se torres bloqueiam totalmente a passagem (estilo labirinto) ou são sempre contornáveis.
-- [x] Formato da meta-progressão — decidido: árvore de habilidades ramificada (5 ramos, Ambrosia como moeda). Implementado — ver Meta-progressão.
+- [x] Formato da meta-progressão — decidido: árvore de habilidades ramificada (6 ramos, Ambrosia como moeda). Implementado — ver Meta-progressão.
 - [ ] Número de panteões e torres no MVP vs. reservados para conteúdo pós-lançamento.
 - [ ] Risco de balanceamento: runs muito curtas podem não dar tempo de sentir a progressão das torres; runs muito longas quebram a promessa "curta e intensa".
 - [ ] Risco técnico: performance de muitos inimigos simultâneos em Canvas 2D no navegador — validar cedo na Fase 0.
