@@ -250,7 +250,7 @@ app.innerHTML = `
       <h2>Os deuses oferecem uma bênção</h2>
       <p class="blessing-sub">O tempo para enquanto você escolhe.</p>
       <div class="blessing-choices" id="blessing-choices"></div>
-
+      <button class="blessing-reroll" id="blessing-reroll"></button>
     </div>
   </div>
 
@@ -286,7 +286,7 @@ const towerPopover = document.querySelector<HTMLDivElement>("#tower-popover")!;
 const blessingOverlay = document.querySelector<HTMLDivElement>("#blessing-overlay")!;
 const blessingChoicesEl = document.querySelector<HTMLDivElement>("#blessing-choices")!;
 const blessingListEl = document.querySelector<HTMLDivElement>("#blessing-list")!;
-
+const blessingRerollBtn = document.querySelector<HTMLButtonElement>("#blessing-reroll")!;
 const powerBarEl = document.querySelector<HTMLDivElement>("#power-bar")!;
 
 const bonusSummaryEl = document.querySelector<HTMLDivElement>("#bonus-summary")!;
@@ -826,6 +826,7 @@ function updatePowerBar(powers: PowerUiState[]): void {
   }
 }
 
+blessingRerollBtn.addEventListener("click", () => game.rerollBlessings());
 
 // --- Cartão da torre selecionada: aparece ao lado dela, sobre o canvas ---
 
@@ -921,7 +922,9 @@ function showBlessingOffer(choices: BlessingId[]): void {
       game.chooseBlessing(btn.dataset.blessing as BlessingId);
     });
   }
-
+  const rerollCost = game.rerollCost();
+  blessingRerollBtn.textContent = `🎲 Novas opções — ${rerollCost} Favor (você tem ${Math.floor(game.currentFavor)})`;
+  blessingRerollBtn.disabled = game.currentFavor < rerollCost;
   blessingOverlay.classList.add("visible");
   audio.blessing();
 }

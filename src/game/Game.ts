@@ -18,6 +18,7 @@ import {
   CHAIN_RADIUS_CELLS,
   type BlessingId,
   type BlessingStacks,
+  type BlessingContext,
 } from "./blessings";
 import { computeBonuses, describeBonuses, diffBonusRows, type Bonuses, type BonusRow } from "./bonuses";
 import {
@@ -79,6 +80,9 @@ function towerCost(builtCount: number): number {
 }
 
 const SELL_REFUND_RATIO = 0.5;
+
+// Rerrolar a oferta de bênçãos: custo dobra a cada reroll na run (25, 50, 100...).
+const REROLL_BASE_COST = 25;
 
 // Limite de torres no mapa ao mesmo tempo (provisório — vai virar parte do
 // futuro "deck building" de torres).
@@ -177,11 +181,12 @@ export interface SaveData {
   coreMaxHp?: number;
   blessings?: BlessingStacks;
   blessingsTaken?: number;
-  // Ausentes em saves de antes dos poderes:
+  // Ausentes em saves de antes dos poderes/reroll:
   powerUses?: Partial<Record<PowerId, number>>;
   powerCooldowns?: Partial<Record<PowerId, number>>;
   aegisTimer?: number;
   chronosTimer?: number;
+  blessingRerolls?: number;
 }
 
 export type GameEvent = "placementStarted" | "towerBuilt" | "towerSelected" | "towerUpgraded";
@@ -257,6 +262,7 @@ export class Game {
   private lastAffordUpgrade: boolean | null = null;
   // Pausa pedida de fora (tutorial explicando algo): congela a simulação.
   private externalPause = false;
+  private blessingRerolls = 0;
 
   // Poderes divinos (ver powers.ts): usos na run (encarecem o próximo),
   // recargas, efeitos ativos e o poder esperando o clique no mapa.
@@ -338,6 +344,30 @@ export class Game {
   }
 
 
+  get currentFavor(): number {
+    return this.favor;
+  }
+
+  // --- Reroll de bênçãos ---
+
+  rerollCost(): number {
+    return Math.round(REROLL_BASE_COST * Math.pow(2, this.blessingRerolls));
+  }
+
+  // Troca as 3 cartas da oferta em aberto por outras, pagando Favor.
+  rerollBlessings(): void {
+    if (!this.pendingBlessing) return;
+    const cost = this.rerollCost();
+    if (this.favor < cost) return;
+    const choices = rollBlessings(this.blessings, this.blessingContext());
+    if (choices.length === 0) return;
+    this.favor -= cost;
+    this.blessingRerolls += 1;
+    this.pendingBlessing = choices;
+    this.audio?.purchase();
+    this.updateHud();
+    this.onBlessingOffer(choices);
+  }
 
   // --- Poderes divinos ---
 
@@ -629,6 +659,7 @@ export class Game {
     this.blessingsTaken = 0;
     this.pendingBlessing = null;
     this.externalPause = false;
+    this.blessingRerolls = 0;
     this.powerUses = {};
     this.powerCooldowns = {};
     this.aegisTimer = 0;
@@ -678,6 +709,7 @@ export class Game {
       powerCooldowns: { ...this.powerCooldowns },
       aegisTimer: this.aegisTimer,
       chronosTimer: this.chronosTimer,
+      blessingRerolls: this.blessingRerolls,
       towers: this.towers.map((t) => ({ kind: t.kind, col: t.col, row: t.row, cost: t.cost, facing: t.facing, level: t.level })),
       enemies: this.enemies
         .filter((e) => !e.dying)
@@ -708,6 +740,7 @@ export class Game {
     // pra não despejar várias ofertas seguidas logo ao carregar.
     this.blessingsTaken = data.blessingsTaken ?? this.blessingsEarnedFor(data.kills);
     this.pendingBlessing = null;
+    this.blessingRerolls = data.blessingRerolls ?? 0;
     this.powerUses = { ...(data.powerUses ?? {}) };
     this.powerCooldowns = { ...(data.powerCooldowns ?? {}) };
     this.aegisTimer = data.aegisTimer ?? 0;
@@ -938,12 +971,7 @@ export class Game {
   private checkBlessingMilestone(): void {
     if (this.pendingBlessing || this.coreHp <= 0 || this.gameOver) return;
     if (this.kills < blessingThreshold(this.blessingsTaken)) return;
-    const choices = rollBlessings(this.blessings, {
-      pantheons: this.teamPantheons,
-      coreDamaged: this.coreHp < this.coreMaxHp,
-      hasCrit: this.meta.critChance > 0 || this.stacks("divineCrit") > 0,
-      hasTowers: this.towers.length > 0,
-    });
+    const choices = rollBlessings(this.blessings, this.blessingContext());
     if (choices.length === 0) {
       this.blessingsTaken += 1; // tudo esgotado — pula o marco
       return;
@@ -952,6 +980,16 @@ export class Game {
     this.placing = null;
     this.targetingPower = null;
     this.onBlessingOffer(choices);
+  }
+
+  // O que define quais bênçãos podem ser sorteadas agora.
+  private blessingContext(): BlessingContext {
+    return {
+      pantheons: this.teamPantheons,
+      coreDamaged: this.coreHp < this.coreMaxHp,
+      hasCrit: this.meta.critChance > 0 || this.stacks("divineCrit") > 0,
+      hasTowers: this.towers.length > 0,
+    };
   }
 
   private updateEnemies(dt: number, bonuses: Bonuses): void {

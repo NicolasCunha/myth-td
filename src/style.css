@@ -1416,3 +1416,26 @@ canvas {
   border-color: #ffd75e;
   box-shadow: 0 0 12px rgba(255, 215, 94, 0.5);
 }
+
+/* --- Reroll na oferta de bênçãos --- */
+
+.blessing-reroll {
+  margin-top: 16px;
+  background: transparent;
+  border: 1px solid #3a4256;
+  border-radius: 6px;
+  color: #e8e6df;
+  padding: 8px 14px;
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.blessing-reroll:hover:not(:disabled) {
+  border-color: #f2c879;
+}
+
+.blessing-reroll:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
