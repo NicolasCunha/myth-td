@@ -3,7 +3,25 @@
 // difficulty.ts, mira em targeting.ts, auras em auras.ts e o desenho em
 // renderer.ts.
 import { CELL, COLS, ROWS, CORE_COL, CORE_ROW, cellCenter, inBounds, isCoreCell, pixelToCell } from "./grid";
-import { Tower, Enemy, towerPantheon, upgradeCost, isBoss, MAX_TOWER_LEVEL, type Pantheon, type ShotEffect, type DamagePopup } from "./entities";
+import {
+  Tower,
+  Enemy,
+  towerPantheon,
+  upgradeCost,
+  isBoss,
+  MAX_TOWER_LEVEL,
+  BLEED_DURATION,
+  SLOW_DURATION,
+  MARK_DURATION,
+  FRENZY_PER_STACK,
+  FRENZY_MAX_STACKS,
+  FRENZY_DECAY_TIME,
+  FREYA_ADJACENT_DAMAGE,
+  FREYA_PER_LEVEL,
+  type Pantheon,
+  type ShotEffect,
+  type DamagePopup,
+} from "./entities";
 import { buildSprites } from "./sprites";
 import type { TowerKind, EnemyKind, Facing } from "./types";
 import { NO_META_MODIFIERS, type MetaModifiers } from "./meta";
@@ -628,12 +646,21 @@ export class Game {
         ];
       case "hermes":
         return [line("Regeneração de Favor", (l) => `x${hermesRegenMultiplier(l)}`)];
+      case "freya":
+        return [line("Dano das torres vizinhas", (l) => `+${pct(freyaMultiplier(l) - 1)}`)];
       default: {
-        const damageMult = b.damageMult * (1 + b.pantheonDamage[towerPantheon(tower.kind)]);
-        return [
+        const damageMult = b.damageMult * (1 + b.pantheonDamage[towerPantheon(tower.kind)]) * this.freyaMultFor(tower);
+        const lines = [
           line("Dano", (l) => String(Math.round(tower.damageAtLevel(l) * damageMult))),
           line("Ataques por segundo", (l) => (1 / (tower.fireIntervalAtLevel(l) * (1 - b.attackSpeedBonus))).toFixed(1)),
         ];
+        const fx = tower.onHit;
+        if (fx?.frenzy) lines.push({ label: "Frenesi (máx.)", value: `+${pct(FRENZY_PER_STACK * FRENZY_MAX_STACKS)} cadência` });
+        if (fx?.bleed) lines.push({ label: "Sangramento", value: `${pct(fx.bleed)} do golpe/s · ${BLEED_DURATION}s` });
+        if (fx?.mark) lines.push({ label: "Marca", value: `+${pct(fx.mark)} de dano recebido · ${MARK_DURATION}s` });
+        if (fx?.slow) lines.push({ label: "Congelamento", value: `-${pct(1 - fx.slow)} velocidade · ${SLOW_DURATION}s` });
+        if (fx?.knockback) lines.push({ label: "Empurrão", value: `${String(fx.knockback).replace(".", ",")} casa` });
+        return lines;
       }
     }
   }
@@ -1019,6 +1046,15 @@ export class Game {
         continue;
       }
 
+      // Efeitos de status nórdicos: sangramento (dano contínuo), congelamento
+      // e marca vão se esgotando.
+      if (enemy.bleedTimer > 0) {
+        enemy.hpLeft -= enemy.bleedDps * Math.min(dt, enemy.bleedTimer);
+        enemy.bleedTimer = Math.max(0, enemy.bleedTimer - dt);
+      }
+      if (enemy.slowTimer > 0) enemy.slowTimer = Math.max(0, enemy.slowTimer - dt);
+      if (enemy.markTimer > 0) enemy.markTimer = Math.max(0, enemy.markTimer - dt);
+
       if (enemy.hpLeft <= 0) {
         enemy.dying = true;
         enemy.deathTimer = DEATH_DURATION;
@@ -1050,7 +1086,8 @@ export class Game {
       // pelo grid, os demais vão em linha reta (ver pathing.ts). Hades retarda
       // quem está no seu raio; Cronos retarda todos. Torres não bloqueiam.
       const chronosMult = this.chronosTimer > 0 ? CHRONOS_SPEED_MULT : 1;
-      const slow = hadesSlowFactorAt(this.towers, enemy.x, enemy.y) * bonuses.enemySpeedMult * chronosMult;
+      const frozenMult = enemy.slowTimer > 0 ? enemy.slowMult : 1;
+      const slow = hadesSlowFactorAt(this.towers, enemy.x, enemy.y) * bonuses.enemySpeedMult * chronosMult * frozenMult;
       advanceAlong(enemy, enemy.waypoints, core, enemy.speed * slow * dt);
 
       survivors.push(enemy);
@@ -1095,11 +1132,12 @@ export class Game {
         const progress = 1 - tower.attackTimer / tower.attackDuration;
         if (!tower.strikeFired && progress >= STRIKE_POINT && tower.pendingTargets.length > 0) {
           this.audio?.shoot();
-          const towerMult = damageMult * (1 + bonuses.pantheonDamage[towerPantheon(tower.kind)]);
+          const towerMult = damageMult * (1 + bonuses.pantheonDamage[towerPantheon(tower.kind)]) * this.freyaMultFor(tower);
           for (const target of tower.pendingTargets) {
             const isCrit = Math.random() < critChance;
             const dmg = Math.round(tower.damage * towerMult * (isCrit ? critMult : 1));
-            this.dealDamage(target, dmg, isCrit, tower.x, tower.y, bonuses.executionThreshold);
+            const dealt = this.dealDamage(target, dmg, isCrit, tower.x, tower.y, bonuses.executionThreshold, "normal", tower.kind);
+            if (tower.onHit) this.applyOnHit(tower, target, dealt);
             // "Raio em Cadeia": o acerto salta pra um inimigo próximo com parte do dano.
             if (chainChance > 0 && Math.random() < chainChance) {
               const next = closestEnemyTo(target, this.enemies, CHAIN_RADIUS_CELLS * CELL);
@@ -1114,10 +1152,23 @@ export class Game {
       if (tower.cooldown > 0) continue;
 
       const targets = acquireTargets(tower, this.enemies, targeting);
-      if (targets.length === 0) continue;
+      if (targets.length === 0) {
+        // Fenrir: sem alvo por um tempo, o frenesi esfria.
+        if (tower.frenzyStacks > 0) {
+          tower.idleTime += dt;
+          if (tower.idleTime >= FRENZY_DECAY_TIME) tower.frenzyStacks = 0;
+        }
+        continue;
+      }
 
       // "Velocidade de Ataque" (meta) + "Mãos Ligeiras" (bênção): reduzem a recarga entre ataques.
       tower.cooldown = tower.fireInterval * (1 - attackSpeedBonus);
+      if (tower.onHit?.frenzy) {
+        // Fenrir: cada ataque com alvo acelera o próximo.
+        tower.cooldown /= 1 + FRENZY_PER_STACK * tower.frenzyStacks;
+        tower.frenzyStacks = Math.min(FRENZY_MAX_STACKS, tower.frenzyStacks + 1);
+        tower.idleTime = 0;
+      }
       // Animação nunca mais longa que a recarga — senão o próximo ataque
       // recomeçaria o braço antes do golpe e o dano nunca sairia.
       tower.attackDuration = Math.min(ATTACK_DURATION, tower.cooldown * 0.9);
@@ -1127,15 +1178,67 @@ export class Game {
     }
   }
 
-  private dealDamage(target: Enemy, dmg: number, crit: boolean, fromX: number, fromY: number, executionThreshold: number, kind: ShotEffect["kind"] = "normal"): void {
+  // Aplica o dano (já com a marca de Odin, se houver) e devolve o dano final.
+  private dealDamage(
+    target: Enemy,
+    dmg: number,
+    crit: boolean,
+    fromX: number,
+    fromY: number,
+    executionThreshold: number,
+    kind: ShotEffect["kind"] = "normal",
+    source?: TowerKind,
+  ): number {
+    if (target.markTimer > 0) dmg = Math.round(dmg * (1 + target.markBonus));
     target.hpLeft -= dmg;
     target.hitFlash = HIT_FLASH_DURATION;
     // "Sentença de Thanatos": inimigo comum quase morto morre na hora.
     if (executionThreshold > 0 && !isBoss(target.kind) && target.hpLeft > 0 && target.hpLeft < target.hp * executionThreshold) {
       target.hpLeft = 0;
     }
-    this.shots.push({ x1: fromX, y1: fromY, x2: target.x, y2: target.y, ttl: 0.12, kind });
+    this.shots.push({ x1: fromX, y1: fromY, x2: target.x, y2: target.y, ttl: 0.12, kind, source });
     this.popups.push({ x: target.x, y: target.y - 12, value: dmg, age: 0, ttl: DAMAGE_POPUP_DURATION, crit });
+    return dmg;
+  }
+
+  // Efeitos de status das torres nórdicas no alvo atingido.
+  private applyOnHit(tower: Tower, target: Enemy, dealt: number): void {
+    const fx = tower.onHit!;
+    if (fx.bleed) {
+      target.bleedTimer = BLEED_DURATION;
+      target.bleedDps = dealt * fx.bleed;
+    }
+    if (fx.slow) {
+      target.slowTimer = SLOW_DURATION;
+      target.slowMult = fx.slow;
+    }
+    if (fx.mark) {
+      target.markTimer = MARK_DURATION;
+      target.markBonus = fx.mark;
+    }
+    if (fx.knockback && !isBoss(target.kind) && target.hpLeft > 0) {
+      // Loki: empurra pra longe do núcleo (sem sair do mapa) e recalcula a rota.
+      const core = cellCenter(CORE_COL, CORE_ROW);
+      const dx = target.x - core.x;
+      const dy = target.y - core.y;
+      const dist = Math.hypot(dx, dy) || 1;
+      const push = fx.knockback * CELL;
+      const min = CELL / 2;
+      target.x = Math.max(min, Math.min(COLS * CELL - min, target.x + (dx / dist) * push));
+      target.y = Math.max(min, Math.min(ROWS * CELL - min, target.y + (dy / dist) * push));
+      this.assignPath(target);
+    }
+  }
+
+  // Freya: torres nas 8 casas em volta de alguma Freya causam mais dano (vale
+  // a Freya de maior nível; não soma entre cópias).
+  private freyaMultFor(tower: Tower): number {
+    let best = 1;
+    for (const f of this.towers) {
+      if (f.kind !== "freya" || f === tower) continue;
+      if (Math.max(Math.abs(f.col - tower.col), Math.abs(f.row - tower.row)) <= 1) best = Math.max(best, freyaMultiplier(f.level));
+    }
+    return best;
   }
 
   // Construção em duas etapas: 1º clique escolhe a célula e põe o jogo em
@@ -1313,4 +1416,8 @@ function formatTime(sec: number): string {
   const m = Math.floor(sec / 60);
   const s = Math.floor(sec % 60);
   return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function freyaMultiplier(level: number): number {
+  return 1 + FREYA_ADJACENT_DAMAGE + FREYA_PER_LEVEL * (level - 1);
 }

@@ -35,7 +35,7 @@ type TowerGroup = "greekActive" | "greekPassive" | "norse" | "egyptian";
 const TOWER_GROUP_TITLES: Record<TowerGroup, string> = {
   greekActive: "Gregos · Ativo",
   greekPassive: "Gregos · Passivo",
-  norse: "Nórdico",
+  norse: "Nórdicos · Efeitos",
   egyptian: "Egípcios · Direcionais",
 };
 
@@ -50,6 +50,11 @@ const TOWER_OPTIONS: { kind: TowerKind; name: string; description: string; group
   { kind: "hades", name: "Hades", description: "Não ataca. Retarda em 35% os inimigos que chegarem perto dele. Melhorar aumenta o raio e a lentidão.", group: "greekPassive" },
   { kind: "hermes", name: "Hermes", description: "Não ataca. Dobra a velocidade com que você ganha Favor (+50% por nível).", group: "greekPassive" },
   { kind: "thor", name: "Thor", description: "Martelo de área: atinge todos os inimigos próximos nas 4 direções.", group: "norse" },
+  { kind: "fenrir", name: "Fenrir", description: "Lobo direcional: morde as 3 casas da frente + a 2ª. Entra em FRENESI — cada ataque acelera o próximo (até +72%) — e deixa os alvos sangrando.", group: "norse" },
+  { kind: "odin", name: "Odin", description: "Lança Gungnir em linha reta pra frente, num alvo só. O alvo fica MARCADO: todas as torres causam +30% de dano nele por 4s.", group: "norse" },
+  { kind: "skadi", name: "Skadi", description: "Flechas de gelo da 2ª à 6ª casa à frente, num alvo só. CONGELA: o alvo fica 45% mais lento por 2,5s.", group: "norse" },
+  { kind: "loki", name: "Loki", description: "O trapaceiro ataca PRA TRÁS (3 casas atrás dele) e EMPURRA quem acerta pra longe do núcleo.", group: "norse" },
+  { kind: "freya", name: "Freya", description: "Não ataca. Torres nas 8 casas em volta dela causam +25% de dano (+5% por nível) — posicione as melhores ao redor.", group: "norse" },
   { kind: "ra", name: "Rá", description: "Raio de sol em linha reta PRA FRENTE, até a borda do mapa. Acerta todos os inimigos no caminho.", group: "egyptian" },
   { kind: "horus", name: "Hórus", description: "Olhar de falcão: só enxerga as duas diagonais da frente (até 4 casas). Dano alto num único alvo.", group: "egyptian" },
   { kind: "anubis", name: "Anúbis", description: "Cone que se abre à frente (1, depois 3, depois 5 casas de largura). Acerta todos dentro do cone.", group: "egyptian" },
@@ -89,6 +94,11 @@ const EVOLVED_NAMES: Record<TowerKind, string> = {
   sobek: "Sobek Primordial",
   bastet: "Bastet Protetora",
   isis: "Ísis Alada",
+  fenrir: "Fenrir do Ragnarök",
+  odin: "Odin Pai-de-Todos",
+  skadi: "Skadi Inverno Eterno",
+  loki: "Loki Mil Faces",
+  freya: "Freya Valquíria",
 };
 
 type View = "menu" | "play" | "upgrades" | "team" | "shop" | "settings";

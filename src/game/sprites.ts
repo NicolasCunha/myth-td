@@ -515,6 +515,157 @@ function buildThorArmSprite(): HTMLCanvasElement {
   return rasterize(g);
 }
 
+// --- Panteão nórdico: peles, ferro e tons gelados ---
+
+const NORSE_FUR_LIGHT = "#c9b79c";
+const STEEL = "#9aa3b5";
+const WOLF = "#6e7480";
+const WOLF_LIGHT = "#b8bec8";
+const WOLF_DARK = "#3c4048";
+const WOLF_EYE = "#ffcf3f";
+const ODIN_BLUE = "#3d4f7a";
+const ODIN_SHADE = "#283553";
+const RAVEN = "#1c1c24";
+const ICE = "#bfe9ff";
+const ICE_SHADE = "#7fb6d9";
+const SKADI_WHITE = "#e8f2f8";
+const SKADI_HAIR = "#3a3a48";
+const LOKI_GREEN = "#3f7a3a";
+const LOKI_SHADE = "#264d24";
+const LOKI_GOLD = "#d8b04a";
+const LOKI_EYE = "#9be36b";
+const FREYA_DRESS = "#d98aa8";
+const FREYA_SHADE = "#a65d7b";
+const FREYA_HAIR = "#f0c860";
+
+// Fenrir: o lobo gigante, sentado de frente, com a coleira de corrente que os
+// deuses usaram pra prendê-lo. O "braço" é a pata com garras.
+function buildFenrirBodySprite(): HTMLCanvasElement {
+  const g = emptyGrid();
+  rect(g, 5, 14, 10, 15, WOLF_DARK); // pedestal
+  circle(g, 8, 11, 3.6, WOLF); // corpo
+  rect(g, 7, 10, 9, 13, WOLF_LIGHT); // peito claro
+  circle(g, 8, 5, 3, WOLF); // cabeça
+  pixels(g, [[5, 1], [5, 2], [6, 2], [11, 1], [11, 2], [10, 2]], WOLF); // orelhas pontudas
+  pixels(g, [[5, 1], [11, 1]], WOLF_DARK);
+  rect(g, 7, 6, 9, 7, WOLF_LIGHT); // focinho
+  pixels(g, [[8, 6]], INK); // nariz
+  pixels(g, [[6, 4], [10, 4]], WOLF_EYE); // olhos amarelos
+  rect(g, 5, 8, 11, 8, STEEL); // coleira de corrente
+  pixels(g, [[6, 8], [8, 8], [10, 8]], HAMMER);
+  pixels(g, [[5, 12], [4, 13], [5, 13]], WOLF); // pata de descanso
+  return outlined(g);
+}
+function buildFenrirArmSprite(): HTMLCanvasElement {
+  const g = emptyGrid();
+  pixels(g, [[10, 7], [11, 6], [11, 5], [12, 5]], WOLF); // pata erguida
+  pixels(g, [[12, 3], [13, 3], [13, 4], [11, 3]], BLADE); // garras
+  outline(g, INK);
+  return rasterize(g);
+}
+
+// Odin: o Pai-de-Todos — chapéu de aba larga, tapa-olho, barba e um corvo no
+// ombro. Empunha a lança Gungnir.
+function buildOdinBodySprite(): HTMLCanvasElement {
+  const g = emptyGrid();
+  rect(g, 5, 14, 10, 15, ODIN_SHADE);
+  rect(g, 5, 11, 10, 13, ODIN_BLUE);
+  rect(g, 6, 8, 9, 10, ODIN_BLUE);
+  rect(g, 9, 9, 9, 13, ODIN_SHADE);
+  rect(g, 6, 8, 9, 8, GOLD);
+  circle(g, 8, 4, 3, SKIN);
+  rect(g, 6, 6, 10, 6, HAIR); // barba
+  rect(g, 7, 7, 9, 7, HAIR);
+  rect(g, 4, 1, 12, 1, ODIN_SHADE); // aba do chapéu
+  rect(g, 6, 0, 10, 0, ODIN_BLUE); // copa
+  pixels(g, [[7, 4]], INK); // olho
+  pixels(g, [[9, 4], [10, 3], [8, 3]], INK); // tapa-olho
+  pixels(g, [[3, 7], [4, 7], [3, 8], [4, 8]], RAVEN); // corvo no ombro
+  pixels(g, [[2, 7]], GOLD); // bico do corvo
+  pixels(g, [[5, 9], [4, 10], [4, 11], [4, 12]], SKIN);
+  return outlined(g);
+}
+function buildOdinArmSprite(): HTMLCanvasElement {
+  const g = emptyGrid();
+  pixels(g, [[10, 7], [11, 6], [11, 5]], SKIN);
+  pixels(g, [[12, 4], [12, 3], [12, 2], [12, 1]], GOLD_DARK); // haste de Gungnir
+  pixels(g, [[12, 0], [11, 1], [13, 1]], BLADE); // ponta
+  outline(g, INK);
+  return rasterize(g);
+}
+
+// Skadi: caçadora do inverno — capuz de pele branca e arco de gelo.
+function buildSkadiBodySprite(): HTMLCanvasElement {
+  const g = emptyGrid();
+  rect(g, 5, 14, 10, 15, ICE_SHADE);
+  rect(g, 5, 11, 10, 13, SKADI_WHITE);
+  rect(g, 6, 8, 9, 10, ICE_SHADE);
+  rect(g, 9, 9, 9, 13, ICE);
+  rect(g, 6, 8, 9, 8, NORSE_FUR_LIGHT); // gola de pele
+  circle(g, 8, 4, 3, SKIN);
+  rect(g, 5, 1, 11, 3, SKADI_WHITE); // capuz de pele
+  pixels(g, [[5, 4], [5, 5], [5, 6]], SKADI_HAIR); // trança escura
+  pixels(g, [[7, 4], [9, 4]], INK);
+  pixels(g, [[6, 1], [10, 1]], ICE); // brilho de gelo no capuz
+  pixels(g, [[5, 9], [4, 10], [4, 11], [4, 12]], SKIN);
+  return outlined(g);
+}
+function buildSkadiArmSprite(): HTMLCanvasElement {
+  const g = emptyGrid();
+  pixels(g, [[10, 7], [11, 6]], SKIN);
+  pixels(g, [[12, 3], [13, 4], [13, 5], [13, 6], [12, 7]], ICE_SHADE); // arco de gelo
+  pixels(g, [[11, 5]], ICE); // flecha de gelo encaixada
+  outline(g, INK);
+  return rasterize(g);
+}
+
+// Loki: o trapaceiro — verde e dourado, elmo de chifres curvos, olhos verdes
+// e um sorriso de canto. Adaga na mão.
+function buildLokiBodySprite(): HTMLCanvasElement {
+  const g = emptyGrid();
+  rect(g, 5, 14, 10, 15, LOKI_SHADE);
+  rect(g, 5, 11, 10, 13, LOKI_GREEN);
+  rect(g, 6, 8, 9, 10, LOKI_GREEN);
+  rect(g, 9, 9, 9, 13, LOKI_SHADE);
+  rect(g, 6, 8, 9, 8, LOKI_GOLD);
+  circle(g, 8, 4, 3, SKIN);
+  rect(g, 6, 1, 10, 2, LOKI_SHADE); // elmo
+  pixels(g, [[5, 1], [4, 0], [11, 1], [12, 0]], LOKI_GOLD); // chifres curvos
+  pixels(g, [[7, 4], [9, 4]], LOKI_EYE);
+  pixels(g, [[9, 6], [10, 5]], INK); // sorriso de canto
+  pixels(g, [[5, 9], [4, 10], [4, 11], [4, 12]], SKIN);
+  return outlined(g);
+}
+function buildLokiArmSprite(): HTMLCanvasElement {
+  const g = emptyGrid();
+  pixels(g, [[10, 7], [11, 6], [11, 5]], SKIN);
+  pixels(g, [[12, 4], [12, 3], [13, 2]], BLADE); // adaga
+  pixels(g, [[13, 1]], LOKI_EYE); // brilho de magia
+  outline(g, INK);
+  return rasterize(g);
+}
+
+// Freya: não ataca — cabelo dourado longo, vestido rosado que se abre, o
+// colar Brisingamen e capa de penas de falcão nas laterais.
+function buildFreyaBodySprite(): HTMLCanvasElement {
+  const g = emptyGrid();
+  rect(g, 5, 14, 10, 15, FREYA_SHADE);
+  rect(g, 4, 12, 11, 13, FREYA_DRESS); // saia se abrindo
+  rect(g, 5, 11, 10, 11, GOLD); // cinto
+  rect(g, 6, 8, 9, 10, FREYA_DRESS);
+  rect(g, 9, 9, 9, 10, FREYA_SHADE);
+  pixels(g, [[7, 8], [8, 8]], GOLD); // Brisingamen
+  pixels(g, [[3, 9], [3, 10], [3, 11], [12, 9], [12, 10], [12, 11]], NORSE_FUR_LIGHT); // capa de penas
+  circle(g, 8, 4, 3, SKIN);
+  rect(g, 6, 1, 10, 2, FREYA_HAIR);
+  rect(g, 5, 3, 5, 7, FREYA_HAIR); // cabelo longo
+  rect(g, 11, 3, 11, 7, FREYA_HAIR);
+  pixels(g, [[7, 4], [9, 4]], INK);
+  pixels(g, [[5, 9], [4, 10], [4, 11]], SKIN); // braço esquerdo
+  pixels(g, [[10, 9], [11, 10], [11, 11]], SKIN); // braço direito
+  return outlined(g);
+}
+
 // --- Panteão egípcio ---
 
 // Corpo comum egípcio (do pescoço pra baixo): peito nu, colar largo,
@@ -835,6 +986,11 @@ export function buildSprites(): SpriteSet {
       sobek: { body: buildSobekBodySprite(), arm: buildSobekArmSprite() },
       bastet: { body: buildBastetBodySprite(), arm: buildBastetArmSprite() },
       isis: { body: buildIsisBodySprite(), arm: buildIsisArmSprite() },
+      fenrir: { body: buildFenrirBodySprite(), arm: buildFenrirArmSprite() },
+      odin: { body: buildOdinBodySprite(), arm: buildOdinArmSprite() },
+      skadi: { body: buildSkadiBodySprite(), arm: buildSkadiArmSprite() },
+      loki: { body: buildLokiBodySprite(), arm: buildLokiArmSprite() },
+      freya: { body: buildFreyaBodySprite(), arm: blank },
     },
     enemies: {
       grunt: buildGruntSprite(),

@@ -1,5 +1,5 @@
-// Panteão grego + Thor (nórdico, implementado antes do pivô de foco — mantido
-// como torre extra de variedade) + panteão egípcio (torres direcionais).
+// Panteões: grego, egípcio (torres direcionais por formato) e nórdico
+// (direcionais com efeitos de status — Thor é o veterano, sem orientação).
 export type TowerKind =
   | "zeus"
   | "poseidon"
@@ -18,7 +18,12 @@ export type TowerKind =
   | "thoth"
   | "sobek"
   | "bastet"
-  | "isis";
+  | "isis"
+  | "fenrir"
+  | "odin"
+  | "skadi"
+  | "loki"
+  | "freya";
 
 export type EnemyKind = "grunt" | "fast" | "tank" | "healer" | "boss" | "typhon";
 

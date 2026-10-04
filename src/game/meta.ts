@@ -276,6 +276,11 @@ export const TOWER_PRICES: Record<TowerKind, number> = {
   sobek: 200,
   sekhmet: 220,
   thoth: 220,
+  skadi: 160,
+  loki: 170,
+  fenrir: 200,
+  freya: 200,
+  odin: 230,
 };
 
 export function isTowerUnlocked(meta: MetaState, kind: TowerKind): boolean {

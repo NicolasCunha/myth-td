@@ -21,7 +21,26 @@ interface TowerDef {
   rangeCells: number; // alcance em células de grid; ignorado por "line"/"lineArea"/"shape"
   shape?: Offset[]; // só "shape"
   shapeTarget?: "all" | "nearest"; // só "shape": acerta todos na área ou só o mais próximo
+  onHit?: OnHitEffect; // nórdicos: efeito de status ao acertar
 }
+
+// --- Efeitos de status (panteão nórdico) ---
+export interface OnHitEffect {
+  bleed?: number; // fração do dano do golpe aplicada como dano por segundo, por BLEED_DURATION
+  slow?: number; // multiplicador de velocidade do alvo enquanto congelado
+  mark?: number; // dano extra que o alvo recebe de todas as torres enquanto marcado
+  knockback?: number; // casas que o alvo é empurrado pra longe do núcleo
+  frenzy?: boolean; // Fenrir: cada ataque com alvo acelera o próximo
+}
+
+export const BLEED_DURATION = 3;
+export const SLOW_DURATION = 2.5;
+export const MARK_DURATION = 4;
+export const FRENZY_PER_STACK = 0.12; // +12% de cadência por acúmulo de frenesi
+export const FRENZY_MAX_STACKS = 6;
+export const FRENZY_DECAY_TIME = 2; // segundos sem alvo até o frenesi zerar
+export const FREYA_ADJACENT_DAMAGE = 0.25; // Freya: +25% de dano pras torres vizinhas (+5%/nível)
+export const FREYA_PER_LEVEL = 0.05;
 
 const LONGEST = Math.max(COLS, ROWS);
 
@@ -50,6 +69,14 @@ const SHAPES = {
   bastet: [[1, -1], [1, 0], [1, 1]] as Offset[],
   // Ísis: abre as asas — acerta só pros lados, nunca pra frente ou pra trás.
   isis: range(1, 3).flatMap((l): Offset[] => [[0, l], [0, -l]]),
+  // Fenrir: mordida nas 3 casas encostadas à frente + a 2ª casa reta.
+  fenrir: [[1, -1], [1, 0], [1, 1], [2, 0]] as Offset[],
+  // Odin: Gungnir, linha reta pra frente até a borda.
+  odin: range(1, LONGEST).map((f): Offset => [f, 0]),
+  // Skadi: flechas de gelo de longe — da 2ª à 6ª casa à frente.
+  skadi: range(2, 6).map((f): Offset => [f, 0]),
+  // Loki: o trapaceiro ataca pelas costas — 4 casas PRA TRÁS.
+  loki: range(1, 4).map((f): Offset => [-f, 0]),
 };
 
 // Elenco de torres mitológicas: panteão grego, Thor (nórdico) e panteão
@@ -93,6 +120,18 @@ const TOWER_DEFS: Record<TowerKind, TowerDef> = {
   bastet: { damage: 10, fireInterval: 0.3, rangePattern: "shape", rangeCells: 0, shape: SHAPES.bastet, shapeTarget: "all" },
   // Ísis: asas laterais, área.
   isis: { damage: 15, fireInterval: 0.6, rangePattern: "shape", rangeCells: 0, shape: SHAPES.isis, shapeTarget: "all" },
+
+  // --- Nórdicos: direcionais + efeitos de status ---
+  // Fenrir: mordida curta em área com frenesi (acelera a cada ataque) e sangramento.
+  fenrir: { damage: 42, fireInterval: 0.7, rangePattern: "shape", rangeCells: 0, shape: SHAPES.fenrir, shapeTarget: "all", onHit: { bleed: 0.3, frenzy: true } },
+  // Odin: Gungnir perfura a linha inteira à frente e marca todos (+30% de dano de todas as torres).
+  odin: { damage: 48, fireInterval: 1.3, rangePattern: "shape", rangeCells: 0, shape: SHAPES.odin, shapeTarget: "all", onHit: { mark: 0.3 } },
+  // Skadi: flechas de gelo que atravessam a fileira e deixam todos 45% mais lentos.
+  skadi: { damage: 20, fireInterval: 0.6, rangePattern: "shape", rangeCells: 0, shape: SHAPES.skadi, shapeTarget: "all", onHit: { slow: 0.55 } },
+  // Loki: ataca pra trás e empurra os atingidos pra longe do núcleo.
+  loki: { damage: 26, fireInterval: 0.8, rangePattern: "shape", rangeCells: 0, shape: SHAPES.loki, shapeTarget: "all", onHit: { knockback: 0.5 } },
+  // Freya: não ataca; torres nas 8 casas em volta dela causam +25% de dano.
+  freya: { damage: 0, fireInterval: Infinity, rangePattern: "none", rangeCells: 1 },
 };
 
 // Dados de alcance de um tipo de torre, sem precisar instanciar uma — usado
@@ -160,6 +199,11 @@ const PANTHEON: Record<TowerKind, Pantheon> = {
   sobek: "egyptian",
   bastet: "egyptian",
   isis: "egyptian",
+  fenrir: "norse",
+  odin: "norse",
+  skadi: "norse",
+  loki: "norse",
+  freya: "norse",
 };
 
 export function towerPantheon(kind: TowerKind): Pantheon {
@@ -193,6 +237,9 @@ export class Tower {
   readonly facing: Facing;
   readonly shapeTarget: "all" | "nearest";
   readonly shapeKeys: Set<number>; // células cobertas (cellKey), só pra "shape"
+  readonly onHit?: OnHitEffect;
+  frenzyStacks = 0; // Fenrir: acúmulos de frenesi
+  idleTime = 0; // segundos sem alvo (zera o frenesi)
   readonly seed = Math.random() * Math.PI * 2; // fase do balanço de respiração, pra não animar em sincronia
   cooldown = 0;
 
@@ -222,6 +269,7 @@ export class Tower {
     this.facing = facing;
     this.shapeTarget = def.shapeTarget ?? "all";
     this.shapeKeys = new Set(shapeCells(kind, col, row, facing).map((c) => cellKey(c.col, c.row)));
+    this.onHit = def.onHit;
     this.cost = cost;
   }
 
@@ -272,6 +320,13 @@ export class Enemy {
   summonTimer = 2; // só Tifão: tempo até invocar os próximos monstros
   stompTimer = 0; // só Tifão: tempo até o próximo pisão no núcleo
   waypoints: { x: number; y: number }[] = []; // rota pelo grid (ver pathing.ts); vazia = linha reta até o núcleo
+  // Efeitos de status (nórdicos): timers e intensidades.
+  bleedTimer = 0;
+  bleedDps = 0;
+  slowTimer = 0;
+  slowMult = 1;
+  markTimer = 0;
+  markBonus = 0;
 
   constructor(
     kind: EnemyKind,
@@ -302,6 +357,7 @@ export interface ShotEffect {
   y2: number;
   ttl: number;
   kind?: "normal" | "chain"; // "chain" = salto do Raio em Cadeia (desenhado azulado)
+  source?: TowerKind; // torre que disparou (efeito visual próprio por torre)
 }
 
 // Número de dano flutuante exibido a cada acerto de torre.
