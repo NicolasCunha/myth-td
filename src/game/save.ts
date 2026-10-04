@@ -1,6 +1,6 @@
 import type { SaveData } from "./Game";
 
-const STORAGE_KEY = "myth-td-save-v1";
+export const STORAGE_KEY = "myth-td-save-v1";
 
 export function saveGame(data: SaveData): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));

@@ -5,6 +5,9 @@ import { buildSprites, buildTowerIcon } from "./game/sprites";
 import { AudioEngine } from "./game/audio";
 import { TEAM_SIZE, loadTeam, saveTeam } from "./game/team";
 import { BLESSINGS, blessingDef, RARITY_LABELS, type BlessingId, type BlessingStacks } from "./game/blessings";
+import { loadSettings, saveSettings } from "./game/settings";
+import { exportBackup, importBackup, backupFileName } from "./game/backup";
+import { Tutorial } from "./tutorial";
 import {
   UPGRADES,
   loadMeta,
@@ -84,7 +87,7 @@ const EVOLVED_NAMES: Record<TowerKind, string> = {
   isis: "Ísis Alada",
 };
 
-type View = "menu" | "play" | "upgrades" | "team" | "shop";
+type View = "menu" | "play" | "upgrades" | "team" | "shop" | "settings";
 
 const optionFor = (kind: TowerKind) => TOWER_OPTIONS.find((t) => t.kind === kind)!;
 
@@ -113,9 +116,9 @@ app.innerHTML = `
       <button id="menu-team">Equipe <span id="menu-team-badge"></span></button>
       <button id="menu-shop">Loja</button>
       <button id="menu-upgrades">Melhorias <span id="menu-ambrosia-badge"></span></button>
+      <button id="menu-settings">⚙️ Configurações</button>
     </div>
     <p class="menu-warning" id="menu-team-warning" hidden>Monte sua equipe antes de começar uma run.</p>
-    <button id="mute-btn-menu" class="mute-btn" title="Silenciar áudio">🔊</button>
   </div>
 
   <div id="play" hidden>
@@ -175,6 +178,49 @@ app.innerHTML = `
     <div class="team-collection" id="team-collection"></div>
   </div>
 
+  <div id="settings" hidden>
+    <div class="upgrades-header">
+      <h1>Configurações</h1>
+      <button id="settings-back">Voltar</button>
+    </div>
+    <div class="settings-panel">
+      <section class="settings-section">
+        <h3 class="sidebar-section-title">Áudio</h3>
+        <label class="settings-row">
+          <span>Música</span>
+          <input type="range" id="music-volume" min="0" max="100" step="1" />
+          <b id="music-volume-label">80%</b>
+        </label>
+        <label class="settings-row">
+          <span>Efeitos sonoros</span>
+          <input type="range" id="sfx-volume" min="0" max="100" step="1" />
+          <b id="sfx-volume-label">80%</b>
+        </label>
+        <label class="settings-row settings-check">
+          <input type="checkbox" id="mute-all" />
+          <span>Silenciar tudo</span>
+        </label>
+      </section>
+
+      <section class="settings-section">
+        <h3 class="sidebar-section-title">Tutorial</h3>
+        <p class="settings-hint">O tutorial guiado aparece na sua primeira run.</p>
+        <button class="settings-btn" id="replay-tutorial">Rever tutorial na próxima run</button>
+      </section>
+
+      <section class="settings-section">
+        <h3 class="sidebar-section-title">Save</h3>
+        <p class="settings-hint">Exporte seu progresso (Ambrosia, melhorias, torres desbloqueadas, equipe e run salva) num arquivo JSON pra usar em outra máquina ou compartilhar. Importar <b>substitui</b> o progresso atual.</p>
+        <div class="settings-buttons">
+          <button class="settings-btn" id="export-save">⬇️ Exportar save</button>
+          <button class="settings-btn" id="import-save">⬆️ Importar save</button>
+          <input type="file" id="import-file" accept=".json,application/json" hidden />
+        </div>
+        <p class="settings-status" id="settings-status"></p>
+      </section>
+    </div>
+  </div>
+
   <div id="shop" hidden>
     <div class="upgrades-header">
       <h1>Loja</h1>
@@ -224,8 +270,20 @@ const upgradeBtn = document.querySelector<HTMLButtonElement>("#upgrade-btn")!;
 const blessingOverlay = document.querySelector<HTMLDivElement>("#blessing-overlay")!;
 const blessingChoicesEl = document.querySelector<HTMLDivElement>("#blessing-choices")!;
 const blessingListEl = document.querySelector<HTMLDivElement>("#blessing-list")!;
-const muteBtnMenu = document.querySelector<HTMLButtonElement>("#mute-btn-menu")!;
 const muteBtnPlay = document.querySelector<HTMLButtonElement>("#mute-btn-play")!;
+const settingsView = document.querySelector<HTMLDivElement>("#settings")!;
+const menuSettingsBtn = document.querySelector<HTMLButtonElement>("#menu-settings")!;
+const settingsBackBtn = document.querySelector<HTMLButtonElement>("#settings-back")!;
+const musicVolumeInput = document.querySelector<HTMLInputElement>("#music-volume")!;
+const sfxVolumeInput = document.querySelector<HTMLInputElement>("#sfx-volume")!;
+const musicVolumeLabel = document.querySelector<HTMLElement>("#music-volume-label")!;
+const sfxVolumeLabel = document.querySelector<HTMLElement>("#sfx-volume-label")!;
+const muteAllInput = document.querySelector<HTMLInputElement>("#mute-all")!;
+const replayTutorialBtn = document.querySelector<HTMLButtonElement>("#replay-tutorial")!;
+const exportSaveBtn = document.querySelector<HTMLButtonElement>("#export-save")!;
+const importSaveBtn = document.querySelector<HTMLButtonElement>("#import-save")!;
+const importFileInput = document.querySelector<HTMLInputElement>("#import-file")!;
+const settingsStatus = document.querySelector<HTMLElement>("#settings-status")!;
 const speedButtons = document.querySelectorAll<HTMLButtonElement>(".speed-btn");
 
 const canvas = document.querySelector<HTMLCanvasElement>("#game-canvas")!;
@@ -292,6 +350,7 @@ function renderSidebar(runTeam: TowerKind[], selected: TowerKind): void {
     btn.addEventListener("click", () => {
       setActiveTowerButton(btn.dataset.kind as TowerKind);
       game.selectTowerKind(btn.dataset.kind as TowerKind);
+      tutorial.notify("towerKindSelected");
     });
   }
   applyBuiltKinds();
@@ -322,6 +381,7 @@ const audio = new AudioEngine();
 
 const game = new Game(canvas, hud, {
   onRunEnd: (stats) => {
+    tutorial.stop();
     const earned = computeAmbrosiaEarned(stats, meta);
     meta.ambrosia += earned;
     saveMeta(meta);
@@ -367,6 +427,7 @@ const game = new Game(canvas, hud, {
   },
   onBlessingOffer: (choices) => showBlessingOffer(choices),
   onBlessingsChanged: (stacks) => renderBlessingList(stacks),
+  onEvent: (event) => tutorial.notify(event),
   meta: computeMetaModifiers(meta),
   audio,
 });
@@ -376,17 +437,17 @@ function resetSpeedToNormal(): void {
   for (const btn of speedButtons) btn.classList.toggle("active", btn.dataset.speed === "1");
 }
 
-let currentView: View = "menu";
-
 function showView(view: View): void {
   menu.hidden = view !== "menu";
   play.hidden = view !== "play";
   upgradesView.hidden = view !== "upgrades";
   teamView.hidden = view !== "team";
   shopView.hidden = view !== "shop";
+  settingsView.hidden = view !== "settings";
   overlay.classList.remove("visible");
   blessingOverlay.classList.remove("visible");
   currentView = view;
+  if (view !== "play") tutorial.stop();
 
   if (view === "menu") {
     menuLoadBtn.disabled = !hasSavedGame();
@@ -401,34 +462,122 @@ function showView(view: View): void {
   audio.playMusic(view === "play" ? "run" : "menu");
 }
 
+function setActiveTowerButton(kind: TowerKind): void {
+  for (const btn of towerButtons) btn.classList.toggle("active", btn.dataset.kind === kind);
+}
+
+// --- Configurações ---
+
+let currentView: View = "menu";
+const settings = loadSettings();
+
+function applyAudioSettings(): void {
+  audio.setVolumes(settings.musicVolume, settings.sfxVolume);
+  audio.setMuted(settings.muted);
+  muteBtnPlay.textContent = settings.muted ? "🔇" : "🔊";
+}
+
+function renderSettings(): void {
+  musicVolumeInput.value = String(Math.round(settings.musicVolume * 100));
+  sfxVolumeInput.value = String(Math.round(settings.sfxVolume * 100));
+  musicVolumeLabel.textContent = `${musicVolumeInput.value}%`;
+  sfxVolumeLabel.textContent = `${sfxVolumeInput.value}%`;
+  muteAllInput.checked = settings.muted;
+  replayTutorialBtn.disabled = !settings.tutorialDone;
+  replayTutorialBtn.textContent = settings.tutorialDone ? "Rever tutorial na próxima run" : "Tutorial será mostrado na próxima run";
+  settingsStatus.textContent = "";
+}
+
+function updateSettings(change: Partial<typeof settings>): void {
+  Object.assign(settings, change);
+  saveSettings(settings);
+  applyAudioSettings();
+}
+
+musicVolumeInput.addEventListener("input", () => {
+  musicVolumeLabel.textContent = `${musicVolumeInput.value}%`;
+  updateSettings({ musicVolume: Number(musicVolumeInput.value) / 100 });
+});
+sfxVolumeInput.addEventListener("input", () => {
+  sfxVolumeLabel.textContent = `${sfxVolumeInput.value}%`;
+  updateSettings({ sfxVolume: Number(sfxVolumeInput.value) / 100 });
+});
+// Toca um clique ao soltar o controle, pra ouvir o volume escolhido.
+sfxVolumeInput.addEventListener("change", () => audio.click());
+muteAllInput.addEventListener("change", () => updateSettings({ muted: muteAllInput.checked }));
+
+muteBtnPlay.addEventListener("click", () => {
+  audio.unlock();
+  updateSettings({ muted: !settings.muted });
+});
+
+replayTutorialBtn.addEventListener("click", () => {
+  audio.click();
+  updateSettings({ tutorialDone: false });
+  renderSettings();
+});
+
+exportSaveBtn.addEventListener("click", () => {
+  audio.click();
+  const blob = new Blob([exportBackup()], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = backupFileName();
+  link.click();
+  URL.revokeObjectURL(url);
+  settingsStatus.textContent = "✅ Save exportado.";
+});
+
+importSaveBtn.addEventListener("click", () => {
+  audio.click();
+  importFileInput.value = "";
+  importFileInput.click();
+});
+
+importFileInput.addEventListener("change", async () => {
+  const file = importFileInput.files?.[0];
+  if (!file) return;
+  if (!confirm("Importar esse save vai SUBSTITUIR todo o seu progresso atual. Continuar?")) return;
+  try {
+    importBackup(await file.text());
+    // Recarrega a página pra todo o estado (meta, equipe, configurações) vir do save novo.
+    location.reload();
+  } catch (err) {
+    settingsStatus.textContent = `❌ ${(err as Error).message}`;
+  }
+});
+
+menuSettingsBtn.addEventListener("click", () => {
+  audio.unlock();
+  audio.click();
+  renderSettings();
+  showView("settings");
+});
+
+settingsBackBtn.addEventListener("click", () => {
+  audio.click();
+  showView("menu");
+});
+
 // O navegador só deixa tocar áudio depois de um gesto do jogador: no
 // primeiro clique em qualquer lugar, destrava e começa a trilha da tela atual.
 document.addEventListener(
   "pointerdown",
   () => {
     audio.unlock();
+    applyAudioSettings();
     audio.playMusic(currentView === "play" ? "run" : "menu");
   },
   { once: true },
 );
 
-function setActiveTowerButton(kind: TowerKind): void {
-  for (const btn of towerButtons) btn.classList.toggle("active", btn.dataset.kind === kind);
-}
+// --- Tutorial ---
 
-function updateMuteButtons(): void {
-  const icon = audio.muted ? "🔇" : "🔊";
-  muteBtnMenu.textContent = icon;
-  muteBtnPlay.textContent = icon;
-}
-
-function toggleMute(): void {
-  audio.unlock();
-  audio.setMuted(!audio.muted);
-  updateMuteButtons();
-}
-muteBtnMenu.addEventListener("click", toggleMute);
-muteBtnPlay.addEventListener("click", toggleMute);
+const tutorial = new Tutorial({
+  setPaused: (paused) => game.setExternalPause(paused),
+  onFinish: () => updateSettings({ tutorialDone: true }),
+});
 
 menuNewBtn.addEventListener("click", () => {
   if (team.length === 0) return;
@@ -443,6 +592,7 @@ menuNewBtn.addEventListener("click", () => {
   showView("play");
   game.reset();
   game.selectTowerKind(first);
+  if (!settings.tutorialDone) tutorial.start();
 });
 
 menuLoadBtn.addEventListener("click", () => {
@@ -485,6 +635,105 @@ menuShopBtn.addEventListener("click", () => {
   showView("shop");
   renderShop();
 });
+
+shopBackBtn.addEventListener("click", () => {
+  audio.click();
+  showView("menu");
+});
+
+// --- Equipe e Loja: cartas de torre agrupadas por panteão ---
+
+function towerCardHtml(t: (typeof TOWER_OPTIONS)[number], classes: string, footer: string): string {
+  return `
+    <div class="tower-card ${classes}" data-kind="${t.kind}">
+      <canvas class="tower-icon" data-kind="${t.kind}" width="56" height="56"></canvas>
+      <div class="tower-card-body">
+        <div class="tower-card-name">${t.name}</div>
+        <div class="tower-card-desc">${t.description}</div>
+        ${footer}
+      </div>
+    </div>`;
+}
+
+function groupedCardsHtml(card: (t: (typeof TOWER_OPTIONS)[number]) => string): string {
+  return (Object.keys(TOWER_GROUP_TITLES) as TowerGroup[])
+    .map(
+      (group) => `
+      <h3 class="sidebar-section-title">${TOWER_GROUP_TITLES[group]}</h3>
+      <div class="card-grid">${TOWER_OPTIONS.filter((t) => t.group === group).map(card).join("")}</div>`,
+    )
+    .join("");
+}
+
+function toggleTeamMember(kind: TowerKind): void {
+  if (team.includes(kind)) {
+    team = team.filter((k) => k !== kind);
+  } else {
+    if (team.length >= TEAM_SIZE || !isTowerUnlocked(meta, kind)) return;
+    team = [...team, kind];
+  }
+  saveTeam(team);
+  audio.click();
+  renderTeam();
+}
+
+function renderTeam(): void {
+  teamCountEl.textContent = `${team.length}/${TEAM_SIZE}`;
+  const full = team.length >= TEAM_SIZE;
+
+  // Vagas da equipe: preenchidas na ordem de escolha; clicar remove.
+  teamSlotsEl.innerHTML = Array.from({ length: TEAM_SIZE }, (_, i) => {
+    const kind = team[i];
+    if (!kind) return `<div class="team-slot empty">Vaga ${i + 1}</div>`;
+    return `
+      <button class="team-slot" data-kind="${kind}" title="Remover ${optionFor(kind).name} da equipe">
+        <canvas class="tower-icon" data-kind="${kind}" width="44" height="44"></canvas>
+        <span>${optionFor(kind).name}</span>
+      </button>`;
+  }).join("");
+
+  teamCollectionEl.innerHTML = groupedCardsHtml((t) => {
+    if (!isTowerUnlocked(meta, t.kind)) {
+      return towerCardHtml(t, "locked", `<div class="tower-card-tag">🔒 Desbloqueie na Loja (${TOWER_PRICES[t.kind]} 🍯)</div>`);
+    }
+    const inTeam = team.includes(t.kind);
+    const tag = inTeam ? "✓ Na equipe" : full ? "Equipe cheia" : "Clique pra adicionar";
+    return towerCardHtml(t, `selectable${inTeam ? " selected" : ""}${!inTeam && full ? " disabled" : ""}`, `<div class="tower-card-tag">${tag}</div>`);
+  });
+
+  paintIcons(teamView);
+  for (const el of teamView.querySelectorAll<HTMLElement>(".team-slot[data-kind], .tower-card.selectable")) {
+    el.addEventListener("click", () => toggleTeamMember(el.dataset.kind as TowerKind));
+  }
+}
+
+function renderShop(): void {
+  shopAmbrosiaEl.textContent = String(Math.floor(meta.ambrosia));
+  shopCollectionEl.innerHTML = groupedCardsHtml((t) => {
+    if (isTowerUnlocked(meta, t.kind)) {
+      return towerCardHtml(t, "owned", `<div class="tower-card-tag owned-tag">✓ Liberada</div>`);
+    }
+    const price = TOWER_PRICES[t.kind];
+    const affordable = meta.ambrosia >= price;
+    return towerCardHtml(t, "", `<button class="node-buy" data-buy-tower="${t.kind}" ${affordable ? "" : "disabled"}>Comprar — ${price} 🍯</button>`);
+  });
+
+  paintIcons(shopView);
+  for (const btn of shopCollectionEl.querySelectorAll<HTMLButtonElement>("[data-buy-tower]")) {
+    btn.addEventListener("click", () => {
+      const kind = btn.dataset.buyTower as TowerKind;
+      if (!tryUnlockTower(meta, kind)) return;
+      // Recém-comprada entra direto na equipe se ainda houver vaga.
+      if (team.length < TEAM_SIZE) {
+        team = [...team, kind];
+        saveTeam(team);
+      }
+      saveMeta(meta);
+      audio.purchase();
+      renderShop();
+    });
+  }
+}
 
 menuUpgradesBtn.addEventListener("click", () => {
   audio.unlock();
@@ -587,105 +836,6 @@ goMenuBtn.addEventListener("click", () => {
   showView("menu");
 });
 
-shopBackBtn.addEventListener("click", () => {
-  audio.click();
-  showView("menu");
-});
-
-// --- Equipe e Loja: cartas de torre agrupadas por panteão ---
-
-function towerCardHtml(t: (typeof TOWER_OPTIONS)[number], classes: string, footer: string): string {
-  return `
-    <div class="tower-card ${classes}" data-kind="${t.kind}">
-      <canvas class="tower-icon" data-kind="${t.kind}" width="56" height="56"></canvas>
-      <div class="tower-card-body">
-        <div class="tower-card-name">${t.name}</div>
-        <div class="tower-card-desc">${t.description}</div>
-        ${footer}
-      </div>
-    </div>`;
-}
-
-function groupedCardsHtml(card: (t: (typeof TOWER_OPTIONS)[number]) => string): string {
-  return (Object.keys(TOWER_GROUP_TITLES) as TowerGroup[])
-    .map(
-      (group) => `
-      <h3 class="sidebar-section-title">${TOWER_GROUP_TITLES[group]}</h3>
-      <div class="card-grid">${TOWER_OPTIONS.filter((t) => t.group === group).map(card).join("")}</div>`,
-    )
-    .join("");
-}
-
-function toggleTeamMember(kind: TowerKind): void {
-  if (team.includes(kind)) {
-    team = team.filter((k) => k !== kind);
-  } else {
-    if (team.length >= TEAM_SIZE || !isTowerUnlocked(meta, kind)) return;
-    team = [...team, kind];
-  }
-  saveTeam(team);
-  audio.click();
-  renderTeam();
-}
-
-function renderTeam(): void {
-  teamCountEl.textContent = `${team.length}/${TEAM_SIZE}`;
-  const full = team.length >= TEAM_SIZE;
-
-  // Vagas da equipe: preenchidas na ordem de escolha; clicar remove.
-  teamSlotsEl.innerHTML = Array.from({ length: TEAM_SIZE }, (_, i) => {
-    const kind = team[i];
-    if (!kind) return `<div class="team-slot empty">Vaga ${i + 1}</div>`;
-    return `
-      <button class="team-slot" data-kind="${kind}" title="Remover ${optionFor(kind).name} da equipe">
-        <canvas class="tower-icon" data-kind="${kind}" width="44" height="44"></canvas>
-        <span>${optionFor(kind).name}</span>
-      </button>`;
-  }).join("");
-
-  teamCollectionEl.innerHTML = groupedCardsHtml((t) => {
-    if (!isTowerUnlocked(meta, t.kind)) {
-      return towerCardHtml(t, "locked", `<div class="tower-card-tag">🔒 Desbloqueie na Loja (${TOWER_PRICES[t.kind]} 🍯)</div>`);
-    }
-    const inTeam = team.includes(t.kind);
-    const tag = inTeam ? "✓ Na equipe" : full ? "Equipe cheia" : "Clique pra adicionar";
-    return towerCardHtml(t, `selectable${inTeam ? " selected" : ""}${!inTeam && full ? " disabled" : ""}`, `<div class="tower-card-tag">${tag}</div>`);
-  });
-
-  paintIcons(teamView);
-  for (const el of teamView.querySelectorAll<HTMLElement>(".team-slot[data-kind], .tower-card.selectable")) {
-    el.addEventListener("click", () => toggleTeamMember(el.dataset.kind as TowerKind));
-  }
-}
-
-function renderShop(): void {
-  shopAmbrosiaEl.textContent = String(Math.floor(meta.ambrosia));
-  shopCollectionEl.innerHTML = groupedCardsHtml((t) => {
-    if (isTowerUnlocked(meta, t.kind)) {
-      return towerCardHtml(t, "owned", `<div class="tower-card-tag owned-tag">✓ Liberada</div>`);
-    }
-    const price = TOWER_PRICES[t.kind];
-    const affordable = meta.ambrosia >= price;
-    return towerCardHtml(t, "", `<button class="node-buy" data-buy-tower="${t.kind}" ${affordable ? "" : "disabled"}>Comprar — ${price} 🍯</button>`);
-  });
-
-  paintIcons(shopView);
-  for (const btn of shopCollectionEl.querySelectorAll<HTMLButtonElement>("[data-buy-tower]")) {
-    btn.addEventListener("click", () => {
-      const kind = btn.dataset.buyTower as TowerKind;
-      if (!tryUnlockTower(meta, kind)) return;
-      // Recém-comprada entra direto na equipe se ainda houver vaga.
-      if (team.length < TEAM_SIZE) {
-        team = [...team, kind];
-        saveTeam(team);
-      }
-      saveMeta(meta);
-      audio.purchase();
-      renderShop();
-    });
-  }
-}
-
 // --- Tela de Melhorias: árvore de habilidades, uma coluna por branch ---
 
 // Torres que não fazem sentido como alvo da melhoria "Duplicata" — são
@@ -759,7 +909,7 @@ function renderNode(def: UpgradeDef): string {
     </div>`;
 }
 
-updateMuteButtons();
+applyAudioSettings();
 showView("menu");
 
 function formatTime(sec: number): string {

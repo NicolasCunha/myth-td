@@ -191,7 +191,7 @@ export const UPGRADES: UpgradeDef[] = [
   },
 ];
 
-const META_KEY = "myth-td-meta-v1";
+export const META_KEY = "myth-td-meta-v1";
 
 // --- Loja de torres ---
 // Só Zeus vem liberado; o resto é desbloqueado permanentemente com Ambrosia.

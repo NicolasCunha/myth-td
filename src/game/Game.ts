@@ -256,6 +256,7 @@ export interface SaveData {
   blessingsTaken?: number;
 }
 
+export type GameEvent = "placementStarted" | "towerBuilt" | "towerSelected" | "towerUpgraded";
 
 export interface GameOptions {
   onRunEnd: (stats: RunStats) => void;
@@ -264,6 +265,8 @@ export interface GameOptions {
   // Marco de abates atingido: o jogo pausa e espera chooseBlessing() com uma das opções.
   onBlessingOffer: (choices: BlessingId[]) => void;
   onBlessingsChanged: (stacks: BlessingStacks) => void;
+  // Ações do jogador — usadas pelo tutorial pra saber quando avançar.
+  onEvent?: (event: GameEvent) => void;
   meta?: MetaModifiers;
   audio?: AudioEngine;
 }
@@ -276,7 +279,7 @@ export class Game {
   private readonly onTowerSelected: (info: SelectedTowerInfo | null) => void;
   private readonly onBlessingOffer: (choices: BlessingId[]) => void;
   private readonly onBlessingsChanged: (stacks: BlessingStacks) => void;
-
+  private readonly onEvent: (event: GameEvent) => void;
   private readonly audio?: AudioEngine;
   private readonly sprites: SpriteSet;
 
@@ -315,6 +318,8 @@ export class Game {
   private pendingBlessing: BlessingId[] | null = null;
   private teamPantheons = new Set<Pantheon>(["greek"]);
   private lastAffordUpgrade: boolean | null = null;
+  // Pausa pedida de fora (tutorial explicando algo): congela a simulação.
+  private externalPause = false;
 
   constructor(canvas: HTMLCanvasElement, hud: Hud, options: GameOptions) {
     const ctx = canvas.getContext("2d");
@@ -326,7 +331,7 @@ export class Game {
     this.onTowerSelected = options.onTowerSelected;
     this.onBlessingOffer = options.onBlessingOffer;
     this.onBlessingsChanged = options.onBlessingsChanged;
-
+    this.onEvent = options.onEvent ?? (() => {});
     this.audio = options.audio;
     this.meta = options.meta ?? NO_META_MODIFIERS;
     this.favor = STARTING_FAVOR + this.meta.startingFavorBonus;
@@ -370,6 +375,11 @@ export class Game {
     this.meta = meta;
   }
 
+  // Pausa pedida de fora (ex.: tutorial num passo de leitura).
+  setExternalPause(paused: boolean): void {
+    this.externalPause = paused;
+    this.lastTs = performance.now();
+  }
 
   // Equipe da run — define quais bênçãos de panteão podem ser oferecidas.
   setTeam(team: TowerKind[]): void {
@@ -442,7 +452,7 @@ export class Game {
     this.favor -= cost;
     tower.cost += cost;
     tower.level += 1;
-
+    this.onEvent("towerUpgraded");
     if (tower.evolved) this.audio?.victory();
     else this.audio?.build();
     this.updateHud();
@@ -488,6 +498,7 @@ export class Game {
     this.blessings = {};
     this.blessingsTaken = 0;
     this.pendingBlessing = null;
+    this.externalPause = false;
     this.onBlessingsChanged({});
     this.coreMaxHp = BASE_CORE_HP;
     this.coreHp = BASE_CORE_HP;
@@ -605,7 +616,7 @@ export class Game {
   private loop = (ts: number): void => {
     if (!this.running) return;
     // Escolhendo bênção: jogo congelado. Escolhendo orientação: câmera lenta.
-    const timeScale = this.pendingBlessing ? 0 : this.placing ? PLACEMENT_TIME_SCALE : this.speedMultiplier;
+    const timeScale = this.pendingBlessing || this.externalPause ? 0 : this.placing ? PLACEMENT_TIME_SCALE : this.speedMultiplier;
     const dt = Math.min((ts - this.lastTs) / 1000, MAX_DT) * timeScale;
     this.lastTs = ts;
 
@@ -620,7 +631,6 @@ export class Game {
   private update(dt: number): void {
     this.elapsed += dt;
     this.audio?.setMusicIntensity(this.elapsed / RUN_DURATION);
-
     if (this.coreHitFlash > 0) this.coreHitFlash = Math.max(0, this.coreHitFlash - dt);
     // "Cajado de Asclépio": o núcleo se regenera aos poucos.
     if (this.coreHp > 0) this.coreHp = Math.min(this.coreMaxHp, this.coreHp + ASCLEPIUS_REGEN_PER_STACK * this.stacks("asclepius") * dt);
@@ -1004,7 +1014,7 @@ export class Game {
     const clickedTower = this.towers.find((t) => t.col === col && t.row === row);
     if (clickedTower) {
       this.selectTower(clickedTower);
-
+      this.onEvent("towerSelected");
       return;
     }
     if (this.selectedTower) this.selectTower(null);
@@ -1012,7 +1022,7 @@ export class Game {
     if (isCoreCell(col, row) || !this.canBuildSelected() || this.favor < this.nextTowerCost()) return;
 
     this.placing = { col, row, facing: this.lastFacing };
-
+    this.onEvent("placementStarted");
     this.audio?.click();
   }
 
@@ -1067,7 +1077,7 @@ export class Game {
     this.favor -= cost;
     this.lastFacing = p.facing;
     this.towers.push(new Tower(this.selectedKind, p.col, p.row, cost, p.facing));
-
+    this.onEvent("towerBuilt");
     this.audio?.build();
     this.updateHud();
     this.notifyTowersChanged();
