@@ -107,6 +107,12 @@ function towerSlotHtml(t: (typeof TOWER_OPTIONS)[number], active: boolean): stri
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `
+  <div id="splash">
+    <h1>Myth TD</h1>
+    <p class="splash-sub">Tower defense roguelite mitológico</p>
+    <p class="splash-cta">Clique para começar</p>
+  </div>
+
   <div id="menu">
     <h1>Myth TD <span class="subtitle">— protótipo</span></h1>
     <p class="tagline">Tower defense roguelite mitológico. Defenda o núcleo com deuses gregos, egípcios (e um nórdico).</p>
@@ -253,6 +259,7 @@ app.innerHTML = `
   </div>
 `;
 
+const splash = document.querySelector<HTMLDivElement>("#splash")!;
 const menu = document.querySelector<HTMLDivElement>("#menu")!;
 const play = document.querySelector<HTMLDivElement>("#play")!;
 const upgradesView = document.querySelector<HTMLDivElement>("#upgrades")!;
@@ -560,17 +567,25 @@ settingsBackBtn.addEventListener("click", () => {
   showView("menu");
 });
 
-// O navegador só deixa tocar áudio depois de um gesto do jogador: no
-// primeiro clique em qualquer lugar, destrava e começa a trilha da tela atual.
-document.addEventListener(
-  "pointerdown",
-  () => {
-    audio.unlock();
-    applyAudioSettings();
-    audio.playMusic(currentView === "play" ? "run" : "menu");
-  },
-  { once: true },
-);
+// O navegador só deixa tocar áudio depois de um gesto do jogador. A tela de
+// entrada ("Clique para começar") garante esse gesto logo de cara, então a
+// trilha do menu já toca ao entrar — antes ela só começava no primeiro clique,
+// que muitas vezes já era o "Novo Jogo".
+function enterGame(): void {
+  if (splash.hidden) return;
+  splash.hidden = true;
+  audio.unlock();
+  applyAudioSettings();
+  audio.playMusic(currentView === "play" ? "run" : "menu");
+  audio.click();
+}
+splash.addEventListener("click", enterGame);
+window.addEventListener("keydown", (e) => {
+  if (!splash.hidden && (e.code === "Enter" || e.code === "Space")) {
+    e.preventDefault();
+    enterGame();
+  }
+});
 
 // --- Tutorial ---
 

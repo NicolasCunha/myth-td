@@ -1148,3 +1148,38 @@ canvas {
     opacity: 0.45;
   }
 }
+
+/* --- Tela de entrada: o clique destrava o áudio (política de autoplay) --- */
+
+#splash {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: radial-gradient(circle at 50% 45%, #1c2130 0%, #0b0e14 70%);
+  cursor: pointer;
+  user-select: none;
+}
+
+#splash h1 {
+  font-size: 48px;
+  color: #f2c879;
+  letter-spacing: 0.04em;
+}
+
+.splash-sub {
+  margin: 0;
+  opacity: 0.6;
+  font-size: 15px;
+}
+
+.splash-cta {
+  margin: 28px 0 0;
+  font-size: 16px;
+  color: #e8e6df;
+  animation: tutorial-blink 1.6s ease-in-out infinite;
+}

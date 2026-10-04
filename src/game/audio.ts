@@ -132,7 +132,12 @@ export class AudioEngine {
   // política de autoplay dos navegadores não deixa criar/tocar áudio sem
   // interação prévia. Chamar de novo depois de já desbloqueado não faz nada.
   unlock(): void {
-    if (this.ctx) return;
+    if (this.ctx) {
+      // Alguns navegadores suspendem o contexto (aba em segundo plano,
+      // política de autoplay) — retomar sempre que houver um novo gesto.
+      if (this.ctx.state === "suspended") void this.ctx.resume();
+      return;
+    }
     const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     const ctx = new Ctx();
     this.ctx = ctx;
