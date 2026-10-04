@@ -109,6 +109,10 @@ export class AudioEngine {
   defeat(): void {
     [392, 349, 294, 220].forEach((f, i) => this.tone(f, 0.3, "sawtooth", 0.15, i * 0.12));
   }
+  // Arpejo ascendente suave quando uma oferta de bênção aparece.
+  blessing(): void {
+    [440, 554, 659, 880].forEach((f, i) => this.tone(f, 0.35, "sine", 0.1, i * 0.07));
+  }
   purchase(): void {
     this.tone(660, 0.06, "triangle", 0.18);
     this.tone(880, 0.08, "triangle", 0.15, 0.05);

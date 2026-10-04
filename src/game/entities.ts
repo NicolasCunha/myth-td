@@ -138,14 +138,56 @@ export function cellKey(col: number, row: number): number {
   return col * 1000 + row;
 }
 
+// Panteão de cada torre — base das bênçãos por panteão (ver blessings.ts).
+export type Pantheon = "greek" | "norse" | "egyptian";
+
+const PANTHEON: Record<TowerKind, Pantheon> = {
+  zeus: "greek",
+  poseidon: "greek",
+  ares: "greek",
+  athena: "greek",
+  artemis: "greek",
+  hera: "greek",
+  hades: "greek",
+  demeter: "greek",
+  hermes: "greek",
+  thor: "norse",
+  ra: "egyptian",
+  horus: "egyptian",
+  anubis: "egyptian",
+  sekhmet: "egyptian",
+  thoth: "egyptian",
+  sobek: "egyptian",
+  bastet: "egyptian",
+  isis: "egyptian",
+};
+
+export function towerPantheon(kind: TowerKind): Pantheon {
+  return PANTHEON[kind];
+}
+
+// --- Upgrade de torre na run ---
+// Nível 1 = recém-construída; o último nível é a "forma mitológica" (evolução),
+// um salto bem maior que os upgrades comuns. Índice = nível - 1.
+export const MAX_TOWER_LEVEL = 4;
+const LEVEL_DAMAGE_MULT = [1, 1.3, 1.65, 2.2];
+const LEVEL_INTERVAL_MULT = [1, 0.92, 0.85, 0.72];
+const UPGRADE_COSTS = [20, 40, 80]; // custo em Favor pra ir do nível N pro N+1
+
+// Custo do próximo upgrade, ou null se a torre já está no nível máximo.
+export function upgradeCost(level: number): number | null {
+  return level >= MAX_TOWER_LEVEL ? null : UPGRADE_COSTS[level - 1];
+}
+
 export class Tower {
   readonly kind: TowerKind;
   readonly col: number;
   readonly row: number;
   readonly x: number;
   readonly y: number;
-  readonly damage: number;
-  readonly fireInterval: number;
+  readonly baseDamage: number;
+  readonly baseFireInterval: number;
+  level = 1;
   readonly rangePattern: RangePattern;
   readonly rangeCells: number;
   readonly facing: Facing;
@@ -157,13 +199,14 @@ export class Tower {
   // Ciclo de ataque (preparação -> golpe -> recuperação) tocado pelo braço.
   // Ver Game.ATTACK_DURATION / attackArmAngle. Torres passivas nunca entram nesse ciclo.
   attackTimer = 0;
+  attackDuration = 0.32; // encurtada pelo Game quando a cadência fica muito rápida
   pendingTargets: Enemy[] = [];
   strikeFired = true;
 
-  // Favor pago por essa torre — usado pra calcular o reembolso ao vendê-la.
-  readonly cost: number;
+  // Favor investido nessa torre (construção + upgrades) — base do reembolso ao vendê-la.
+  cost: number;
 
-  constructor(kind: TowerKind, col: number, row: number, cost = 0, facing: Facing = "right") {
+  constructor(kind: TowerKind, col: number, row: number, cost = 0, facing: Facing = "right", level = 1) {
     const def = TOWER_DEFS[kind];
     this.kind = kind;
     this.col = col;
@@ -171,14 +214,27 @@ export class Tower {
     const c = cellCenter(col, row);
     this.x = c.x;
     this.y = c.y;
-    this.damage = def.damage;
-    this.fireInterval = def.fireInterval;
+    this.baseDamage = def.damage;
+    this.baseFireInterval = def.fireInterval;
+    this.level = Math.min(Math.max(level, 1), MAX_TOWER_LEVEL);
     this.rangePattern = def.rangePattern;
     this.rangeCells = def.rangeCells;
     this.facing = facing;
     this.shapeTarget = def.shapeTarget ?? "all";
     this.shapeKeys = new Set(shapeCells(kind, col, row, facing).map((c) => cellKey(c.col, c.row)));
     this.cost = cost;
+  }
+
+  get damage(): number {
+    return this.baseDamage * LEVEL_DAMAGE_MULT[this.level - 1];
+  }
+
+  get fireInterval(): number {
+    return this.baseFireInterval * LEVEL_INTERVAL_MULT[this.level - 1];
+  }
+
+  get evolved(): boolean {
+    return this.level >= MAX_TOWER_LEVEL;
   }
 }
 
@@ -228,6 +284,7 @@ export interface ShotEffect {
   x2: number;
   y2: number;
   ttl: number;
+  kind?: "normal" | "chain"; // "chain" = salto do Raio em Cadeia (desenhado azulado)
 }
 
 // Número de dano flutuante exibido a cada acerto de torre.

@@ -1,11 +1,55 @@
 import { CELL, COLS, ROWS, CORE_COL, CORE_ROW, cellCenter, inBounds, isCoreCell, pixelToCell } from "./grid";
-import { Tower, Enemy, towerRangeDef, isDirectional, shapeCells, facingVector, cellKey, type ShotEffect, type DamagePopup } from "./entities";
+import {
+  Tower,
+  Enemy,
+  towerRangeDef,
+  isDirectional,
+  shapeCells,
+  facingVector,
+  cellKey,
+  towerPantheon,
+  upgradeCost,
+  MAX_TOWER_LEVEL,
+  type Pantheon,
+  type ShotEffect,
+  type DamagePopup,
+} from "./entities";
 import { buildSprites, type SpriteSet, TOWER_ARM_PIVOT } from "./sprites";
 import type { TowerKind, EnemyKind, Facing } from "./types";
 import { NO_META_MODIFIERS, type MetaModifiers } from "./meta";
 import type { AudioEngine } from "./audio";
+import {
+  blessingThreshold,
+  rollBlessings,
+  PANTHEON_DAMAGE_PER_STACK,
+  ATTACK_SPEED_PER_STACK,
+  CRIT_PER_STACK,
+  ENEMY_SLOW_PER_STACK,
+  DISCOUNT_PER_STACK,
+  FAVOR_REGEN_PER_STACK,
+  OFFERING_FAVOR,
+  SACRED_WALL_HEAL,
+  BLESSED_CORE_HP,
+  SOUL_HARVEST_PER_STACK,
+  ASCLEPIUS_REGEN_PER_STACK,
+  CRUSHING_CRIT_MULT,
+  GROWING_WRATH_PER_BLESSING,
+  CHAIN_CHANCE_PER_STACK,
+  CHAIN_DAMAGE_RATIO,
+  CHAIN_RADIUS_CELLS,
+  EXECUTION_THRESHOLD,
+  type BlessingId,
+  type BlessingStacks,
+} from "./blessings";
 
-const CORE_MAX_HP = 100;
+const BASE_CORE_HP = 100;
+const MAX_ATTACK_SPEED_BONUS = 0.6; // teto somando meta + bênçãos, pra cadência não ir a zero
+
+const PANTHEON_BLESSING: Record<Pantheon, BlessingId> = {
+  greek: "olympusFury",
+  egyptian: "desertWrath",
+  norse: "asgardFury",
+};
 const CORE_HIT_RADIUS = CELL * 0.55;
 const STARTING_FAVOR = 20;
 const FAVOR_REGEN_PER_SEC = 1; // Favor regenera sozinho, mesmo sem abater inimigos
@@ -39,9 +83,14 @@ const BOSS_FAVOR_REWARD = 40;
 const BOSS_BANNER_DURATION = 3.5;
 
 // Hera, Hades e Hermes — auras passivas. Ver GDD > Torres Mitológicas.
+// Upgrades de nível fortalecem a aura (valores por nível acima do 1).
 const HERA_DAMAGE_MULTIPLIER = 1.15;
-const HADES_SLOW_MULTIPLIER = 0.5;
+const HERA_PER_LEVEL = 0.05;
+const HADES_SLOW_MULTIPLIER = 0.65; // 35% — era 50%, forte demais (simulação: decidia a run sozinho)
+const HADES_SLOW_PER_LEVEL = 0.05;
+const HADES_RADIUS_PER_LEVEL = 0.5;
 const HERMES_FAVOR_REGEN_MULTIPLIER = 2;
+const HERMES_PER_LEVEL = 0.5;
 
 // Ciclo de ataque da torre: o braço recua (preparação), golpeia rápido
 // (acerta no STRIKE_POINT) e volta à pose de descanso (recuperação).
@@ -164,11 +213,16 @@ interface SavedTower {
   row: number;
   cost: number;
   facing?: Facing; // ausente em saves de antes da orientação existir
+  level?: number; // ausente em saves de antes dos upgrades
 }
 
 export interface SelectedTowerInfo {
   kind: TowerKind;
   refund: number;
+  level: number;
+  maxLevel: number;
+  upgradeCost: number | null; // null = nível máximo (já evoluída)
+  canAffordUpgrade: boolean;
 }
 
 interface SavedEnemy {
@@ -196,12 +250,20 @@ export interface SaveData {
   team?: TowerKind[]; // equipe levada pra run (ausente em saves de antes do team builder)
   towers: SavedTower[];
   enemies: SavedEnemy[];
+  // Ausentes em saves de antes das bênçãos:
+  coreMaxHp?: number;
+  blessings?: BlessingStacks;
+  blessingsTaken?: number;
 }
+
 
 export interface GameOptions {
   onRunEnd: (stats: RunStats) => void;
   onTowersChanged: (builtKinds: Set<TowerKind>, towerCount: number) => void;
   onTowerSelected: (info: SelectedTowerInfo | null) => void;
+  // Marco de abates atingido: o jogo pausa e espera chooseBlessing() com uma das opções.
+  onBlessingOffer: (choices: BlessingId[]) => void;
+  onBlessingsChanged: (stacks: BlessingStacks) => void;
   meta?: MetaModifiers;
   audio?: AudioEngine;
 }
@@ -212,6 +274,9 @@ export class Game {
   private readonly onRunEnd: (stats: RunStats) => void;
   private readonly onTowersChanged: (builtKinds: Set<TowerKind>, towerCount: number) => void;
   private readonly onTowerSelected: (info: SelectedTowerInfo | null) => void;
+  private readonly onBlessingOffer: (choices: BlessingId[]) => void;
+  private readonly onBlessingsChanged: (stacks: BlessingStacks) => void;
+
   private readonly audio?: AudioEngine;
   private readonly sprites: SpriteSet;
 
@@ -220,7 +285,8 @@ export class Game {
   private shots: ShotEffect[] = [];
   private popups: DamagePopup[] = [];
 
-  private coreHp = CORE_MAX_HP;
+  private coreMaxHp = BASE_CORE_HP;
+  private coreHp = BASE_CORE_HP;
   private coreHitFlash = 0;
   private favor = STARTING_FAVOR;
   private elapsed = 0;
@@ -242,6 +308,14 @@ export class Game {
   private speedMultiplier = 1;
   private meta: MetaModifiers = NO_META_MODIFIERS;
 
+  // Bênçãos da run: acúmulos por bênção, quantas ofertas já foram resolvidas
+  // e a oferta em aberto (jogo pausado esperando a escolha).
+  private blessings: BlessingStacks = {};
+  private blessingsTaken = 0;
+  private pendingBlessing: BlessingId[] | null = null;
+  private teamPantheons = new Set<Pantheon>(["greek"]);
+  private lastAffordUpgrade: boolean | null = null;
+
   constructor(canvas: HTMLCanvasElement, hud: Hud, options: GameOptions) {
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("Canvas 2D context indisponível");
@@ -250,6 +324,9 @@ export class Game {
     this.onRunEnd = options.onRunEnd;
     this.onTowersChanged = options.onTowersChanged;
     this.onTowerSelected = options.onTowerSelected;
+    this.onBlessingOffer = options.onBlessingOffer;
+    this.onBlessingsChanged = options.onBlessingsChanged;
+
     this.audio = options.audio;
     this.meta = options.meta ?? NO_META_MODIFIERS;
     this.favor = STARTING_FAVOR + this.meta.startingFavorBonus;
@@ -293,6 +370,43 @@ export class Game {
     this.meta = meta;
   }
 
+
+  // Equipe da run — define quais bênçãos de panteão podem ser oferecidas.
+  setTeam(team: TowerKind[]): void {
+    this.teamPantheons = new Set(team.map(towerPantheon));
+  }
+
+  // Aplica a bênção escolhida entre as oferecidas e despausa o jogo.
+  chooseBlessing(id: BlessingId): void {
+    if (!this.pendingBlessing?.includes(id)) return;
+    this.blessings[id] = (this.blessings[id] ?? 0) + 1;
+    if (id === "offering") this.favor += OFFERING_FAVOR;
+    if (id === "sacredWall") this.coreHp = Math.min(this.coreMaxHp, this.coreHp + SACRED_WALL_HEAL);
+    if (id === "ascension") {
+      for (const t of this.towers) t.level = Math.min(MAX_TOWER_LEVEL, t.level + 1);
+    }
+    if (id === "blessedCore") {
+      this.coreMaxHp += BLESSED_CORE_HP;
+      this.coreHp += BLESSED_CORE_HP;
+    }
+    this.blessingsTaken += 1;
+    this.pendingBlessing = null;
+    this.lastTs = performance.now(); // não conta o tempo parado na escolha
+    this.audio?.purchase();
+    this.onBlessingsChanged({ ...this.blessings });
+    this.updateHud();
+    this.refreshSelectedInfo();
+  }
+
+  private stacks(id: BlessingId): number {
+    return this.blessings[id] ?? 0;
+  }
+
+  // Desconto das bênçãos aplicado a construir e melhorar.
+  private discounted(cost: number): number {
+    return Math.round(cost * (1 - DISCOUNT_PER_STACK * this.stacks("templeDiscount")));
+  }
+
   start(): void {
     this.running = true;
     this.lastTs = performance.now();
@@ -319,13 +433,51 @@ export class Game {
     this.notifyTowersChanged();
   }
 
+  // Sobe a torre selecionada um nível (o último é a evolução), se der pra pagar.
+  upgradeSelectedTower(): void {
+    const tower = this.selectedTower;
+    if (!tower || this.gameOver) return;
+    const cost = this.nextUpgradeCost(tower);
+    if (cost === null || this.favor < cost) return;
+    this.favor -= cost;
+    tower.cost += cost;
+    tower.level += 1;
+
+    if (tower.evolved) this.audio?.victory();
+    else this.audio?.build();
+    this.updateHud();
+    this.refreshSelectedInfo();
+  }
+
+  private nextUpgradeCost(tower: Tower): number | null {
+    const base = upgradeCost(tower.level);
+    return base === null ? null : this.discounted(base);
+  }
+
   private selectTower(tower: Tower | null): void {
     this.selectedTower = tower;
+    this.lastAffordUpgrade = null;
+    this.refreshSelectedInfo();
+  }
+
+  // Reenvia os dados da torre selecionada pra UI (nível, custo, reembolso).
+  private refreshSelectedInfo(): void {
+    const tower = this.selectedTower;
     if (!tower) {
       this.onTowerSelected(null);
       return;
     }
-    this.onTowerSelected({ kind: tower.kind, refund: Math.round(tower.cost * SELL_REFUND_RATIO) });
+    const cost = this.nextUpgradeCost(tower);
+    const canAffordUpgrade = cost !== null && this.favor >= cost;
+    this.lastAffordUpgrade = canAffordUpgrade;
+    this.onTowerSelected({
+      kind: tower.kind,
+      refund: Math.round(tower.cost * SELL_REFUND_RATIO),
+      level: tower.level,
+      maxLevel: MAX_TOWER_LEVEL,
+      upgradeCost: cost,
+      canAffordUpgrade,
+    });
   }
 
   reset(): void {
@@ -333,7 +485,12 @@ export class Game {
     this.enemies = [];
     this.shots = [];
     this.popups = [];
-    this.coreHp = CORE_MAX_HP;
+    this.blessings = {};
+    this.blessingsTaken = 0;
+    this.pendingBlessing = null;
+    this.onBlessingsChanged({});
+    this.coreMaxHp = BASE_CORE_HP;
+    this.coreHp = BASE_CORE_HP;
     this.coreHitFlash = 0;
     this.favor = STARTING_FAVOR + this.meta.startingFavorBonus;
     this.elapsed = 0;
@@ -363,7 +520,10 @@ export class Game {
       bossSpawned: this.bossSpawned,
       bossDefeated: this.bossDefeated,
       selectedKind: this.selectedKind,
-      towers: this.towers.map((t) => ({ kind: t.kind, col: t.col, row: t.row, cost: t.cost, facing: t.facing })),
+      coreMaxHp: this.coreMaxHp,
+      blessings: { ...this.blessings },
+      blessingsTaken: this.blessingsTaken,
+      towers: this.towers.map((t) => ({ kind: t.kind, col: t.col, row: t.row, cost: t.cost, facing: t.facing, level: t.level })),
       enemies: this.enemies
         .filter((e) => !e.dying)
         .map((e) => ({
@@ -385,10 +545,18 @@ export class Game {
   loadFrom(data: SaveData): void {
     // Saves feitos com outro tamanho de célula: converte posições/velocidades em px.
     const k = CELL / (data.cell ?? 48);
-    this.towers = data.towers.map((t) => new Tower(t.kind, t.col, t.row, t.cost, t.facing ?? "right"));
+    this.towers = data.towers.map((t) => new Tower(t.kind, t.col, t.row, t.cost, t.facing ?? "right", t.level ?? 1));
+    this.coreMaxHp = data.coreMaxHp ?? BASE_CORE_HP;
+    this.blessings = { ...(data.blessings ?? {}) };
+    // Saves antigos: considera já "resolvidas" as bênçãos dos abates passados,
+    // pra não despejar várias ofertas seguidas logo ao carregar.
+    this.blessingsTaken = data.blessingsTaken ?? this.blessingsEarnedFor(data.kills);
+    this.pendingBlessing = null;
+    this.onBlessingsChanged({ ...this.blessings });
     this.enemies = data.enemies.map((e) => {
       const enemy = new Enemy(e.kind, e.x * k, e.y * k, e.hp, e.speed * k, e.damage, e.favorReward, e.radius * k);
       enemy.hpLeft = e.hpLeft;
+
       return enemy;
     });
     this.shots = [];
@@ -411,6 +579,12 @@ export class Game {
     this.start();
   }
 
+  private blessingsEarnedFor(kills: number): number {
+    let n = 0;
+    while (blessingThreshold(n) <= kills) n++;
+    return n;
+  }
+
   // Normalmente só 1 torre de cada tipo pode existir no mapa — a torre
   // escolhida pela melhoria mítica "Duplicata" (e "Tríade") pode ter mais.
   private allowedCountFor(kind: TowerKind): number {
@@ -430,7 +604,8 @@ export class Game {
 
   private loop = (ts: number): void => {
     if (!this.running) return;
-    const timeScale = this.placing ? PLACEMENT_TIME_SCALE : this.speedMultiplier;
+    // Escolhendo bênção: jogo congelado. Escolhendo orientação: câmera lenta.
+    const timeScale = this.pendingBlessing ? 0 : this.placing ? PLACEMENT_TIME_SCALE : this.speedMultiplier;
     const dt = Math.min((ts - this.lastTs) / 1000, MAX_DT) * timeScale;
     this.lastTs = ts;
 
@@ -444,10 +619,15 @@ export class Game {
 
   private update(dt: number): void {
     this.elapsed += dt;
-    if (this.coreHitFlash > 0) this.coreHitFlash = Math.max(0, this.coreHitFlash - dt);
 
-    const favorRegenMult = this.towers.some((t) => t.kind === "hermes") ? HERMES_FAVOR_REGEN_MULTIPLIER : 1;
-    this.favor += (FAVOR_REGEN_PER_SEC + this.meta.favorRegenBonus) * favorRegenMult * dt;
+    if (this.coreHitFlash > 0) this.coreHitFlash = Math.max(0, this.coreHitFlash - dt);
+    // "Cajado de Asclépio": o núcleo se regenera aos poucos.
+    if (this.coreHp > 0) this.coreHp = Math.min(this.coreMaxHp, this.coreHp + ASCLEPIUS_REGEN_PER_STACK * this.stacks("asclepius") * dt);
+
+    const hermesLevel = this.bestLevelOf("hermes");
+    const favorRegenMult = hermesLevel > 0 ? HERMES_FAVOR_REGEN_MULTIPLIER + HERMES_PER_LEVEL * (hermesLevel - 1) : 1;
+    const regen = FAVOR_REGEN_PER_SEC + this.meta.favorRegenBonus + FAVOR_REGEN_PER_STACK * this.stacks("divineFlow");
+    this.favor += regen * favorRegenMult * dt;
 
     this.spawnTimer -= dt;
     if (this.spawnTimer <= 0) {
@@ -463,6 +643,7 @@ export class Game {
 
     this.updateEnemies(dt);
     this.updateTowers(dt);
+    this.checkBlessingMilestone();
 
     for (const shot of this.shots) shot.ttl -= dt;
     this.shots = this.shots.filter((s) => s.ttl > 0);
@@ -513,15 +694,47 @@ export class Game {
     this.audio?.bossSpawn();
   }
 
+  // Atingiu o próximo marco de abates: sorteia 3 bênçãos e pausa até a escolha.
+  private checkBlessingMilestone(): void {
+    if (this.pendingBlessing || this.coreHp <= 0 || this.elapsed >= RUN_DURATION) return;
+    if (this.kills < blessingThreshold(this.blessingsTaken)) return;
+    const choices = rollBlessings(this.blessings, {
+      pantheons: this.teamPantheons,
+      coreDamaged: this.coreHp < this.coreMaxHp,
+      hasCrit: this.meta.critChance > 0 || this.stacks("divineCrit") > 0,
+      hasTowers: this.towers.length > 0,
+    });
+    if (choices.length === 0) {
+      this.blessingsTaken += 1; // tudo esgotado — pula o marco
+      return;
+    }
+    this.pendingBlessing = choices;
+    this.placing = null;
+    this.onBlessingOffer(choices);
+  }
+
+  // Maior nível entre as torres de um tipo no mapa (0 = nenhuma) — usado
+  // pelas auras passivas, que não somam entre cópias.
+  private bestLevelOf(kind: TowerKind): number {
+    let best = 0;
+    for (const t of this.towers) if (t.kind === kind) best = Math.max(best, t.level);
+    return best;
+  }
+
+  private hadesRadiusPx(tower: Tower): number {
+    return (tower.rangeCells + HADES_RADIUS_PER_LEVEL * (tower.level - 1)) * CELL;
+  }
+
   // Aura passiva de Hades: dentro do alcance, inimigos andam mais devagar.
   // Não é um ataque — é checada a cada frame, não entra no ciclo de ataque.
   private hadesSlowFactorAt(x: number, y: number): number {
+    let factor = 1;
     for (const tower of this.towers) {
       if (tower.kind !== "hades") continue;
       const d = Math.hypot(x - tower.x, y - tower.y);
-      if (d <= tower.rangeCells * CELL) return HADES_SLOW_MULTIPLIER;
+      if (d <= this.hadesRadiusPx(tower)) factor = Math.min(factor, HADES_SLOW_MULTIPLIER - HADES_SLOW_PER_LEVEL * (tower.level - 1));
     }
-    return 1;
+    return factor;
   }
 
   private updateEnemies(dt: number): void {
@@ -540,9 +753,10 @@ export class Game {
       if (enemy.hpLeft <= 0) {
         enemy.dying = true;
         enemy.deathTimer = DEATH_DURATION;
-        this.favor += enemy.favorReward;
+        this.favor += enemy.favorReward * (1 + SOUL_HARVEST_PER_STACK * this.stacks("soulHarvest"));
         this.kills += 1;
         if (enemy.kind === "boss") this.bossDefeated = true;
+
         this.audio?.kill();
         survivors.push(enemy);
         continue;
@@ -551,6 +765,7 @@ export class Game {
       const dx = core.x - enemy.x;
       const dy = core.y - enemy.y;
       const dist = Math.hypot(dx, dy);
+
 
       if (dist <= CORE_HIT_RADIUS) {
         this.coreHp = Math.max(0, this.coreHp - enemy.damage);
@@ -561,7 +776,7 @@ export class Game {
 
       // Movimento em linha reta até o núcleo (Hades retarda quem está no seu
       // raio). Contornar torres/obstáculos é uma questão aberta do GDD.
-      const slow = this.hadesSlowFactorAt(enemy.x, enemy.y);
+      const slow = this.hadesSlowFactorAt(enemy.x, enemy.y) * (1 - ENEMY_SLOW_PER_STACK * this.stacks("heavyAir"));
       enemy.x += (dx / dist) * enemy.speed * slow * dt;
       enemy.y += (dy / dist) * enemy.speed * slow * dt;
 
@@ -592,7 +807,16 @@ export class Game {
   }
 
   private updateTowers(dt: number): void {
-    const dmgMult = (this.towers.some((t) => t.kind === "hera") ? HERA_DAMAGE_MULTIPLIER : 1) * (1 + this.meta.damageBonusPercent);
+    const heraLevel = this.bestLevelOf("hera");
+    const heraMult = heraLevel > 0 ? HERA_DAMAGE_MULTIPLIER + HERA_PER_LEVEL * (heraLevel - 1) : 1;
+    const totalBlessings = Object.values(this.blessings).reduce((s, n) => s + (n ?? 0), 0);
+    const wrathMult = this.stacks("growingWrath") > 0 ? 1 + GROWING_WRATH_PER_BLESSING * totalBlessings : 1;
+    const dmgMult = heraMult * (1 + this.meta.damageBonusPercent) * wrathMult;
+    const critChance = this.meta.critChance + CRIT_PER_STACK * this.stacks("divineCrit");
+    const critMult = this.stacks("crushingBlow") > 0 ? CRUSHING_CRIT_MULT : 2;
+    const chainChance = CHAIN_CHANCE_PER_STACK * this.stacks("chainLightning");
+    // "Velocidade de Ataque" (meta) + "Mãos Ligeiras" (bênção): reduzem a recarga entre ataques.
+    const speedBonus = Math.min(MAX_ATTACK_SPEED_BONUS, this.meta.attackSpeedBonus + ATTACK_SPEED_PER_STACK * this.stacks("swiftHands"));
 
     for (const tower of this.towers) {
       if (tower.rangePattern === "none") continue; // Hera/Hades não atacam, só emanam aura
@@ -603,16 +827,19 @@ export class Game {
       // instante em que a torre "decide" atacar.
       if (tower.attackTimer > 0) {
         tower.attackTimer = Math.max(0, tower.attackTimer - dt);
-        const progress = 1 - tower.attackTimer / ATTACK_DURATION;
+        const progress = 1 - tower.attackTimer / tower.attackDuration;
         if (!tower.strikeFired && progress >= STRIKE_POINT && tower.pendingTargets.length > 0) {
           this.audio?.shoot();
+          const towerMult = dmgMult * (1 + PANTHEON_DAMAGE_PER_STACK * this.stacks(PANTHEON_BLESSING[towerPantheon(tower.kind)]));
           for (const target of tower.pendingTargets) {
-            const isCrit = Math.random() < this.meta.critChance;
-            const dmg = Math.round(tower.damage * dmgMult * (isCrit ? 2 : 1));
-            target.hpLeft -= dmg;
-            target.hitFlash = HIT_FLASH_DURATION;
-            this.shots.push({ x1: tower.x, y1: tower.y, x2: target.x, y2: target.y, ttl: 0.12 });
-            this.popups.push({ x: target.x, y: target.y - 12, value: dmg, age: 0, ttl: DAMAGE_POPUP_DURATION, crit: isCrit });
+            const isCrit = Math.random() < critChance;
+            const dmg = Math.round(tower.damage * towerMult * (isCrit ? critMult : 1));
+            this.dealDamage(target, dmg, isCrit, tower.x, tower.y);
+            // "Raio em Cadeia": o acerto salta pra um inimigo próximo com parte do dano.
+            if (chainChance > 0 && Math.random() < chainChance) {
+              const next = this.closestEnemyTo(target, CHAIN_RADIUS_CELLS * CELL);
+              if (next) this.dealDamage(next, Math.round(dmg * CHAIN_DAMAGE_RATIO), false, target.x, target.y, "chain");
+            }
             this.audio?.hit();
           }
           tower.strikeFired = true;
@@ -624,12 +851,39 @@ export class Game {
       const targets = this.acquireTargets(tower);
       if (targets.length === 0) continue;
 
-      // "Velocidade de Ataque" (meta): reduz o tempo de recarga entre ataques.
-      tower.cooldown = tower.fireInterval * (1 - this.meta.attackSpeedBonus);
-      tower.attackTimer = ATTACK_DURATION;
+      tower.cooldown = tower.fireInterval * (1 - speedBonus);
+      // Animação nunca mais longa que a recarga — senão o próximo ataque
+      // recomeçaria o braço antes do golpe e o dano nunca sairia.
+      tower.attackDuration = Math.min(ATTACK_DURATION, tower.cooldown * 0.9);
+      tower.attackTimer = tower.attackDuration;
       tower.pendingTargets = targets;
       tower.strikeFired = false;
     }
+  }
+
+  private dealDamage(target: Enemy, dmg: number, crit: boolean, fromX: number, fromY: number, kind: ShotEffect["kind"] = "normal"): void {
+    target.hpLeft -= dmg;
+    target.hitFlash = HIT_FLASH_DURATION;
+    // "Sentença de Thanatos": inimigo comum quase morto morre na hora.
+    if (this.stacks("execution") > 0 && target.kind !== "boss" && target.hpLeft > 0 && target.hpLeft < target.hp * EXECUTION_THRESHOLD) {
+      target.hpLeft = 0;
+    }
+    this.shots.push({ x1: fromX, y1: fromY, x2: target.x, y2: target.y, ttl: 0.12, kind });
+    this.popups.push({ x: target.x, y: target.y - 12, value: dmg, age: 0, ttl: DAMAGE_POPUP_DURATION, crit });
+  }
+
+  private closestEnemyTo(from: Enemy, maxDist: number): Enemy | null {
+    let best: Enemy | null = null;
+    let bestDist = maxDist;
+    for (const e of this.enemies) {
+      if (e === from || e.dying || e.hpLeft <= 0) continue;
+      const d = Math.hypot(e.x - from.x, e.y - from.y);
+      if (d <= bestDist) {
+        bestDist = d;
+        best = e;
+      }
+    }
+    return best;
   }
 
   private acquireTargets(tower: Tower): Enemy[] {
@@ -653,6 +907,15 @@ export class Game {
     }
   }
 
+  // Torres de alvo único: os N inimigos mais próximos da torre entre os
+  // candidatos — N = 1 + acúmulos de "Projéteis Múltiplos".
+  private nearestTargets(tower: Tower, candidates: Enemy[]): Enemy[] {
+    const count = 1 + this.stacks("multiShot");
+    if (candidates.length <= count) return candidates;
+    const dist = (e: Enemy) => Math.hypot(e.x - tower.x, e.y - tower.y);
+    return [...candidates].sort((a, b) => dist(a) - dist(b)).slice(0, count);
+  }
+
   // Egípcios — inimigos nas células do formato da torre (já rotacionado pra
   // orientação dela): todos, ou só o mais próximo, conforme a torre.
   private findInShape(tower: Tower): Enemy[] {
@@ -662,38 +925,12 @@ export class Game {
       const cell = pixelToCell(enemy.x, enemy.y);
       if (tower.shapeKeys.has(cellKey(cell.col, cell.row))) hits.push(enemy);
     }
-    if (tower.shapeTarget === "all" || hits.length <= 1) return hits;
-
-    let best = hits[0];
-    let bestDist = Infinity;
-    for (const enemy of hits) {
-      const d = Math.hypot(enemy.x - tower.x, enemy.y - tower.y);
-      if (d < bestDist) {
-        bestDist = d;
-        best = enemy;
-      }
-    }
-    return [best];
+    return tower.shapeTarget === "all" ? hits : this.nearestTargets(tower, hits);
   }
 
   // Zeus/Ártemis — alvo único mais próximo em toda a linha/coluna do grid.
   private findNearestOnLine(tower: Tower): Enemy[] {
-    let best: Enemy | null = null;
-    let bestDist = Infinity;
-
-    for (const enemy of this.enemies) {
-      if (enemy.dying) continue;
-      const cell = pixelToCell(enemy.x, enemy.y);
-      if (cell.col !== tower.col && cell.row !== tower.row) continue;
-
-      const d = Math.hypot(enemy.x - tower.x, enemy.y - tower.y);
-      if (d < bestDist) {
-        bestDist = d;
-        best = enemy;
-      }
-    }
-
-    return best ? [best] : [];
+    return this.nearestTargets(tower, this.findAllOnLine(tower));
   }
 
   // Poseidon — TODOS os inimigos em toda a linha/coluna do grid.
@@ -722,23 +959,12 @@ export class Game {
 
   // Ares — alvo único mais próximo dentro de um losango (distância Manhattan).
   private findNearestInDiamond(tower: Tower): Enemy[] {
-    let best: Enemy | null = null;
-    let bestDist = Infinity;
-
-    for (const enemy of this.enemies) {
-      if (enemy.dying) continue;
+    const hits = this.enemies.filter((enemy) => {
+      if (enemy.dying) return false;
       const cell = pixelToCell(enemy.x, enemy.y);
-      const manhattan = Math.abs(cell.col - tower.col) + Math.abs(cell.row - tower.row);
-      if (manhattan > tower.rangeCells) continue;
-
-      const d = Math.hypot(enemy.x - tower.x, enemy.y - tower.y);
-      if (d < bestDist) {
-        bestDist = d;
-        best = enemy;
-      }
-    }
-
-    return best ? [best] : [];
+      return Math.abs(cell.col - tower.col) + Math.abs(cell.row - tower.row) <= tower.rangeCells;
+    });
+    return this.nearestTargets(tower, hits);
   }
 
   // Atena — todos os inimigos num raio circular curto ao redor da torre.
@@ -758,7 +984,7 @@ export class Game {
   // escolher a orientação e confirma com outro clique (ou Enter/Espaço).
   // Botão direito ou Esc cancela.
   private handleClick(e: MouseEvent, canvas: HTMLCanvasElement): void {
-    if (this.gameOver) return;
+    if (this.gameOver || this.pendingBlessing) return;
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
@@ -777,6 +1003,7 @@ export class Game {
     const clickedTower = this.towers.find((t) => t.col === col && t.row === row);
     if (clickedTower) {
       this.selectTower(clickedTower);
+
       return;
     }
     if (this.selectedTower) this.selectTower(null);
@@ -784,6 +1011,7 @@ export class Game {
     if (isCoreCell(col, row) || !this.canBuildSelected() || this.favor < this.nextTowerCost()) return;
 
     this.placing = { col, row, facing: this.lastFacing };
+
     this.audio?.click();
   }
 
@@ -797,7 +1025,13 @@ export class Game {
   }
 
   private handleKey(e: KeyboardEvent): void {
-    if (!this.placing || !this.running) return;
+    if (!this.running || this.gameOver || this.pendingBlessing) return;
+    if (!this.placing) {
+      // Atalhos pra torre selecionada: U melhora, V vende.
+      if (e.code === "KeyU") this.upgradeSelectedTower();
+      else if (e.code === "KeyV") this.sellSelectedTower();
+      return;
+    }
     const facing = ARROW_KEYS[e.code];
     if (facing) {
       this.placing.facing = facing;
@@ -832,6 +1066,7 @@ export class Game {
     this.favor -= cost;
     this.lastFacing = p.facing;
     this.towers.push(new Tower(this.selectedKind, p.col, p.row, cost, p.facing));
+
     this.audio?.build();
     this.updateHud();
     this.notifyTowersChanged();
@@ -849,15 +1084,23 @@ export class Game {
 
   private nextTowerCost(): number {
     const isFreeFirstTower = this.meta.freeFirstTower && this.towers.length === 0;
-    return isFreeFirstTower ? 0 : towerCost(this.towers.length);
+    return isFreeFirstTower ? 0 : this.discounted(towerCost(this.towers.length));
   }
 
   private updateHud(): void {
     this.hud.favor.textContent = String(Math.floor(this.favor));
-    this.hud.coreHp.textContent = `${Math.ceil(this.coreHp)}/${CORE_MAX_HP}`;
+    this.hud.coreHp.textContent = `${Math.ceil(this.coreHp)}/${this.coreMaxHp}`;
     this.hud.time.textContent = formatTime(this.elapsed);
     this.hud.kills.textContent = String(this.kills);
     this.hud.nextCost.textContent = String(this.nextTowerCost());
+
+    // Botão de melhorar acende/apaga conforme o Favor sobe — só reenvia pra
+    // UI quando a possibilidade de pagar muda, não todo frame.
+    if (this.selectedTower) {
+      const cost = this.nextUpgradeCost(this.selectedTower);
+      const canAfford = cost !== null && this.favor >= cost;
+      if (canAfford !== this.lastAffordUpgrade) this.refreshSelectedInfo();
+    }
   }
 
   private render(): void {
@@ -915,7 +1158,7 @@ export class Game {
 
     // core — respira (pulso leve) e treme/pisca de vermelho ao levar dano
     const core = cellCenter(CORE_COL, CORE_ROW);
-    const hpRatio = this.coreHp / CORE_MAX_HP;
+    const hpRatio = this.coreHp / this.coreMaxHp;
     const corePulse = 1 + Math.sin(this.elapsed * 2.2) * 0.05;
     ctx.save();
     ctx.translate(core.x, core.y);
@@ -940,10 +1183,12 @@ export class Game {
     for (const tower of this.towers) {
       const spriteSet = this.sprites.towers[tower.kind];
       const bob = Math.sin(this.elapsed * 2 + tower.seed) * 1.5;
-      const progress = tower.attackTimer > 0 ? 1 - tower.attackTimer / ATTACK_DURATION : 0;
+      const progress = tower.attackTimer > 0 ? 1 - tower.attackTimer / tower.attackDuration : 0;
       const armAngle = tower.attackTimer > 0 ? attackArmAngle(progress) : 0;
       const bodyLean = armAngle * 0.18;
       const flash = tower.attackTimer > 0 ? impactFlash(progress) : 0;
+
+      if (tower.evolved) this.renderEvolvedGlow(tower);
 
       ctx.save();
       ctx.translate(tower.x, tower.y + bob);
@@ -968,12 +1213,14 @@ export class Game {
 
       // Hades: anel no tamanho real do raio de lentidão. Hera/Hermes: halo
       // pequeno e fixo (os buffs são globais, não teria sentido sugerir um "alcance").
-      if (tower.kind === "hades") this.renderAura(tower, "rgba(143,217,196,0.5)");
+      if (tower.kind === "hades") this.renderAura(tower, "rgba(143,217,196,0.5)", this.hadesRadiusPx(tower));
       if (tower.kind === "hera") this.renderAura(tower, "rgba(242,200,121,0.5)", CELL * 0.55);
       if (tower.kind === "hermes") this.renderAura(tower, "rgba(79,174,138,0.55)", CELL * 0.55);
 
       // Torres direcionais: setinha na borda da célula indicando pra onde olham.
       if (isDirectional(tower.kind)) this.renderFacingArrow(tower.col, tower.row, tower.facing, "rgba(242,200,121,0.8)", 0.7);
+
+      this.renderLevelPips(tower);
 
       if (tower === this.selectedTower) {
         const pulse = 0.5 + Math.sin(this.elapsed * 6) * 0.5;
@@ -987,7 +1234,8 @@ export class Game {
 
     // shots
     for (const shot of this.shots) {
-      ctx.strokeStyle = `rgba(255,236,160,${Math.max(shot.ttl / 0.12, 0)})`;
+      const alpha = Math.max(shot.ttl / 0.12, 0);
+      ctx.strokeStyle = shot.kind === "chain" ? `rgba(150,210,255,${alpha})` : `rgba(255,236,160,${alpha})`;
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(shot.x1, shot.y1);
@@ -1162,6 +1410,55 @@ export class Game {
     if (facing === "left") ctx.scale(-1, 1);
     ctx.drawImage(spriteSet.body, -CELL / 2, -CELL / 2, CELL, CELL);
     ctx.drawImage(spriteSet.arm, -CELL / 2, -CELL / 2, CELL, CELL);
+    ctx.restore();
+  }
+
+
+  // Bolinhas douradas no pé da célula: uma por nível acima do 1. A torre
+  // evoluída mostra uma estrela no lugar.
+  private renderLevelPips(tower: Tower): void {
+    if (tower.level <= 1) return;
+    const ctx = this.ctx;
+    const y = tower.y + CELL / 2 - 5;
+    ctx.save();
+    ctx.strokeStyle = "rgba(10,12,18,0.9)";
+    ctx.lineWidth = 1.5;
+    if (tower.evolved) {
+      ctx.font = "bold 13px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#ffd75e";
+      ctx.strokeText("★", tower.x, y + 4);
+      ctx.fillText("★", tower.x, y + 4);
+    } else {
+      const n = tower.level - 1;
+      for (let i = 0; i < n; i++) {
+        const x = tower.x + (i - (n - 1) / 2) * 8;
+        ctx.fillStyle = "#f2c879";
+        ctx.beginPath();
+        ctx.arc(x, y, 2.6, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  // Forma mitológica (nível máximo): brilho dourado pulsante atrás da torre
+  // + faíscas orbitando.
+  private renderEvolvedGlow(tower: Tower): void {
+    const ctx = this.ctx;
+    const pulse = 0.75 + Math.sin(this.elapsed * 3 + tower.seed) * 0.25;
+    ctx.save();
+    const grad = ctx.createRadialGradient(tower.x, tower.y, 2, tower.x, tower.y, CELL * 0.62);
+    grad.addColorStop(0, `rgba(255,215,94,${0.45 * pulse})`);
+    grad.addColorStop(1, "rgba(255,215,94,0)");
+    ctx.fillStyle = grad;
+    ctx.fillRect(tower.x - CELL / 2, tower.y - CELL / 2, CELL, CELL);
+    ctx.fillStyle = "#fff3c4";
+    for (let i = 0; i < 3; i++) {
+      const a = this.elapsed * 1.8 + tower.seed + (i * Math.PI * 2) / 3;
+      ctx.fillRect(tower.x + Math.cos(a) * CELL * 0.4 - 1.5, tower.y + Math.sin(a) * CELL * 0.4 - 1.5, 3, 3);
+    }
     ctx.restore();
   }
 

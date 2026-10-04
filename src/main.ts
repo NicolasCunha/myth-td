@@ -4,6 +4,7 @@ import { saveGame, loadGame, hasSavedGame } from "./game/save";
 import { buildSprites, buildTowerIcon } from "./game/sprites";
 import { AudioEngine } from "./game/audio";
 import { TEAM_SIZE, loadTeam, saveTeam } from "./game/team";
+import { BLESSINGS, blessingDef, RARITY_LABELS, type BlessingId, type BlessingStacks } from "./game/blessings";
 import {
   UPGRADES,
   loadMeta,
@@ -39,9 +40,9 @@ const TOWER_OPTIONS: { kind: TowerKind; name: string; description: string; group
   { kind: "ares", name: "Ares", description: "Dano enorme num único inimigo bem próximo — alcance curto, formato de losango.", group: "greekActive" },
   { kind: "athena", name: "Atena", description: "Dano em área: atinge todos os inimigos dentro de um raio ao redor dela.", group: "greekActive" },
   { kind: "demeter", name: "Deméter", description: "Dano fraco mas constante em todos os inimigos logo ao redor (cima/baixo/esquerda/direita).", group: "greekActive" },
-  { kind: "hera", name: "Hera", description: "Não ataca. Enquanto estiver viva no mapa, aumenta o dano de todas as outras torres em 15%.", group: "greekPassive" },
-  { kind: "hades", name: "Hades", description: "Não ataca. Retarda em 50% os inimigos que chegarem perto dela.", group: "greekPassive" },
-  { kind: "hermes", name: "Hermes", description: "Não ataca. Dobra a velocidade com que você ganha Favor.", group: "greekPassive" },
+  { kind: "hera", name: "Hera", description: "Não ataca. Enquanto estiver no mapa, aumenta o dano de todas as outras torres em 15% (+5% por nível).", group: "greekPassive" },
+  { kind: "hades", name: "Hades", description: "Não ataca. Retarda em 35% os inimigos que chegarem perto dele. Melhorar aumenta o raio e a lentidão.", group: "greekPassive" },
+  { kind: "hermes", name: "Hermes", description: "Não ataca. Dobra a velocidade com que você ganha Favor (+50% por nível).", group: "greekPassive" },
   { kind: "thor", name: "Thor", description: "Martelo de área: atinge todos os inimigos próximos nas 4 direções.", group: "norse" },
   { kind: "ra", name: "Rá", description: "Raio de sol em linha reta PRA FRENTE, até a borda do mapa. Acerta todos os inimigos no caminho.", group: "egyptian" },
   { kind: "horus", name: "Hórus", description: "Olhar de falcão: só enxerga as duas diagonais da frente (até 4 casas). Dano alto num único alvo.", group: "egyptian" },
@@ -59,6 +60,28 @@ const BRANCH_TITLES: Record<UpgradeDef["branch"], string> = {
   speed: "Velocidade",
   mythic: "Mítico",
   ambrosia: "Ambrosia",
+};
+
+// Nome da forma mitológica (nível máximo) de cada torre.
+const EVOLVED_NAMES: Record<TowerKind, string> = {
+  zeus: "Zeus Olímpico",
+  artemis: "Ártemis Lua Cheia",
+  poseidon: "Poseidon Maremoto",
+  ares: "Ares Sanguinário",
+  athena: "Atena Partenos",
+  demeter: "Deméter Fértil",
+  hera: "Hera Imperatriz",
+  hades: "Hades Soberano",
+  hermes: "Hermes Trismegisto",
+  thor: "Thor Mjölnir",
+  ra: "Rá Meio-Dia",
+  horus: "Hórus Celeste",
+  anubis: "Anúbis Juiz",
+  sekhmet: "Sekhmet Devoradora",
+  thoth: "Thoth Escriba",
+  sobek: "Sobek Primordial",
+  bastet: "Bastet Protetora",
+  isis: "Ísis Alada",
 };
 
 type View = "menu" | "play" | "upgrades" | "team" | "shop";
@@ -99,6 +122,7 @@ app.innerHTML = `
     <div class="top-bar">
       <h1>Myth TD <span class="subtitle">— protótipo</span></h1>
       <div class="run-controls">
+        <button id="upgrade-btn" class="upgrade-btn" hidden></button>
         <button id="sell-btn" class="sell-btn" hidden></button>
         <button id="save-btn" title="Salvar o jogo atual">💾 Salvar</button>
         <button id="back-to-menu-btn" title="Voltar ao menu (pausa o jogo)">☰ Menu</button>
@@ -121,10 +145,11 @@ app.innerHTML = `
       <aside class="tower-sidebar">
         <div id="sidebar-groups"></div>
         <div class="tower-count" id="tower-count">Torres: <b>0/${MAX_TOWERS}</b></div>
+        <div class="blessing-list" id="blessing-list" hidden></div>
       </aside>
       <div class="game-main">
         <canvas id="game-canvas"></canvas>
-        <p class="hint">Clique numa célula vazia pra construir a torre escolhida: o jogo entra em câmera lenta e você escolhe pra onde ela fica virada (aponte o mouse ou use setas/WASD, depois clique ou Enter; Esc ou botão direito cancela). A orientação só muda o alcance dos egípcios. Clique numa torre já construída pra selecioná-la e vendê-la.</p>
+        <p class="hint">Clique numa célula vazia pra construir a torre escolhida: o jogo entra em câmera lenta e você escolhe pra onde ela fica virada (aponte o mouse ou use setas/WASD, depois clique ou Enter; Esc ou botão direito cancela). A orientação só muda o alcance dos egípcios. Clique numa torre já construída pra selecioná-la: dá pra melhorá-la (U) até a forma mitológica ou vendê-la (V). A cada marco de abates os deuses oferecem uma bênção.</p>
       </div>
     </div>
   </div>
@@ -160,6 +185,14 @@ app.innerHTML = `
     <div class="team-collection" id="shop-collection"></div>
   </div>
 
+  <div id="blessing-overlay" class="modal-overlay">
+    <div class="panel blessing-panel">
+      <h2>Os deuses oferecem uma bênção</h2>
+      <p class="blessing-sub">O tempo para enquanto você escolhe.</p>
+      <div class="blessing-choices" id="blessing-choices"></div>
+    </div>
+  </div>
+
   <div id="game-over">
     <div class="panel">
       <h2 id="go-title">Núcleo destruído</h2>
@@ -187,6 +220,10 @@ const upgradeTreeEl = document.querySelector<HTMLDivElement>("#upgrade-tree")!;
 const saveBtn = document.querySelector<HTMLButtonElement>("#save-btn")!;
 const backToMenuBtn = document.querySelector<HTMLButtonElement>("#back-to-menu-btn")!;
 const sellBtn = document.querySelector<HTMLButtonElement>("#sell-btn")!;
+const upgradeBtn = document.querySelector<HTMLButtonElement>("#upgrade-btn")!;
+const blessingOverlay = document.querySelector<HTMLDivElement>("#blessing-overlay")!;
+const blessingChoicesEl = document.querySelector<HTMLDivElement>("#blessing-choices")!;
+const blessingListEl = document.querySelector<HTMLDivElement>("#blessing-list")!;
 const muteBtnMenu = document.querySelector<HTMLButtonElement>("#mute-btn-menu")!;
 const muteBtnPlay = document.querySelector<HTMLButtonElement>("#mute-btn-play")!;
 const speedButtons = document.querySelectorAll<HTMLButtonElement>(".speed-btn");
@@ -305,12 +342,31 @@ const game = new Game(canvas, hud, {
   onTowerSelected: (info: SelectedTowerInfo | null) => {
     if (!info) {
       sellBtn.hidden = true;
+      upgradeBtn.hidden = true;
       return;
     }
-    const opt = TOWER_OPTIONS.find((t) => t.kind === info.kind)!;
-    sellBtn.textContent = `🗑️ Vender ${opt.name} (+${info.refund})`;
+    const opt = optionFor(info.kind);
+    const evolved = info.upgradeCost === null;
+    const name = evolved ? EVOLVED_NAMES[info.kind] : opt.name;
+    sellBtn.textContent = `🗑️ Vender ${name} (+${info.refund})`;
     sellBtn.hidden = false;
+
+    upgradeBtn.hidden = false;
+    upgradeBtn.classList.toggle("evolve", info.level === info.maxLevel - 1);
+    if (evolved) {
+      upgradeBtn.textContent = "★ Forma mitológica";
+      upgradeBtn.disabled = true;
+    } else if (info.level === info.maxLevel - 1) {
+      upgradeBtn.textContent = `🌟 Evoluir: ${EVOLVED_NAMES[info.kind]} — ${info.upgradeCost}`;
+      upgradeBtn.disabled = !info.canAffordUpgrade;
+    } else {
+      upgradeBtn.textContent = `⬆️ Nível ${info.level + 1} — ${info.upgradeCost}`;
+      upgradeBtn.disabled = !info.canAffordUpgrade;
+    }
+    upgradeBtn.title = `${opt.name} — nível ${info.level}/${info.maxLevel} (atalho: U melhora, V vende)`;
   },
+  onBlessingOffer: (choices) => showBlessingOffer(choices),
+  onBlessingsChanged: (stacks) => renderBlessingList(stacks),
   meta: computeMetaModifiers(meta),
   audio,
 });
@@ -327,6 +383,7 @@ function showView(view: View): void {
   teamView.hidden = view !== "team";
   shopView.hidden = view !== "shop";
   overlay.classList.remove("visible");
+  blessingOverlay.classList.remove("visible");
 
   if (view === "menu") {
     menuLoadBtn.disabled = !hasSavedGame();
@@ -368,6 +425,7 @@ menuNewBtn.addEventListener("click", () => {
   runTeam = [...team];
   const first = firstOfTeam(runTeam);
   renderSidebar(runTeam, first);
+  game.setTeam(runTeam);
   game.setMeta(computeMetaModifiers(meta));
   resetSpeedToNormal(); // sempre começa em 1x, não na velocidade da run anterior
   showView("play");
@@ -383,6 +441,7 @@ menuLoadBtn.addEventListener("click", () => {
   // Saves de antes da equipe existir: leva a equipe atual + o que já estava construído.
   runTeam = data.team ?? [...new Set([...team, ...data.towers.map((t) => t.kind), data.selectedKind])];
   renderSidebar(runTeam, data.selectedKind);
+  game.setTeam(runTeam);
   game.setMeta(computeMetaModifiers(meta));
   resetSpeedToNormal();
   showView("play");
@@ -447,6 +506,48 @@ sellBtn.addEventListener("click", () => {
   game.sellSelectedTower();
 });
 
+upgradeBtn.addEventListener("click", () => {
+  game.upgradeSelectedTower();
+});
+
+// --- Bênçãos: oferta (overlay com 3 cartas) e lista das já escolhidas ---
+
+function showBlessingOffer(choices: BlessingId[]): void {
+  blessingChoicesEl.innerHTML = choices
+    .map((id) => {
+      const def = blessingDef(id);
+      return `
+        <button class="blessing-card rarity-${def.rarity}" data-blessing="${id}">
+          <span class="blessing-rarity">${RARITY_LABELS[def.rarity]}</span>
+          <span class="blessing-icon">${def.icon}</span>
+          <span class="blessing-name">${def.name}</span>
+          <span class="blessing-desc">${def.description}</span>
+        </button>`;
+    })
+    .join("");
+  for (const btn of blessingChoicesEl.querySelectorAll<HTMLButtonElement>("[data-blessing]")) {
+    btn.addEventListener("click", () => {
+      blessingOverlay.classList.remove("visible");
+      game.chooseBlessing(btn.dataset.blessing as BlessingId);
+    });
+  }
+  blessingOverlay.classList.add("visible");
+  audio.blessing();
+}
+
+function renderBlessingList(stacks: BlessingStacks): void {
+  const entries = BLESSINGS.filter((b) => (stacks[b.id] ?? 0) > 0);
+  blessingListEl.hidden = entries.length === 0;
+  blessingListEl.innerHTML =
+    `<h3 class="sidebar-section-title">Bênçãos</h3>` +
+    entries
+      .map((b) => {
+        const n = stacks[b.id]!;
+        return `<div class="blessing-chip rarity-${b.rarity}" title="${b.description}">${b.icon} ${b.name}${n > 1 ? ` <b>x${n}</b>` : ""}</div>`;
+      })
+      .join("");
+}
+
 for (const btn of speedButtons) {
   btn.addEventListener("click", () => {
     audio.click();
@@ -461,6 +562,7 @@ restartBtn.addEventListener("click", () => {
   game.setMeta(computeMetaModifiers(meta));
   resetSpeedToNormal();
   overlay.classList.remove("visible");
+  blessingOverlay.classList.remove("visible");
   game.reset();
   // Mesma equipe da run anterior; volta a selecionar a primeira torre.
   const first = firstOfTeam(runTeam);

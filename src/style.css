@@ -799,3 +799,162 @@ canvas {
   opacity: 0.4;
   filter: grayscale(0.8);
 }
+
+/* --- Upgrade de torre --- */
+
+.upgrade-btn {
+  border-color: #a97f3a !important;
+  color: #f2c879 !important;
+}
+
+.upgrade-btn.evolve:not(:disabled) {
+  background: #3a2f12 !important;
+  border-color: #ffd75e !important;
+  color: #ffd75e !important;
+  box-shadow: 0 0 10px rgba(255, 215, 94, 0.35);
+}
+
+/* --- Bênçãos --- */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(5, 6, 10, 0.72);
+  z-index: 20;
+}
+
+.modal-overlay.visible {
+  display: flex;
+}
+
+.blessing-panel {
+  background: #131722;
+  border: 1px solid #a97f3a;
+  border-radius: 12px;
+  padding: 24px 28px;
+  text-align: center;
+}
+
+.blessing-panel h2 {
+  margin: 0;
+  color: #f2c879;
+}
+
+.blessing-sub {
+  margin: 6px 0 18px;
+  font-size: 13px;
+  opacity: 0.65;
+}
+
+.blessing-choices {
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+}
+
+.blessing-card {
+  width: 200px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 18px 14px;
+  background: #1c2130;
+  border: 1px solid #3a4256;
+  border-radius: 10px;
+  color: #e8e6df;
+  font-family: inherit;
+  cursor: pointer;
+  transition: transform 0.12s, border-color 0.12s;
+}
+
+.blessing-card:hover {
+  transform: translateY(-3px);
+  border-color: #f2c879;
+}
+
+.blessing-icon {
+  font-size: 30px;
+}
+
+.blessing-name {
+  font-weight: 600;
+  color: #f2c879;
+  font-size: 15px;
+}
+
+.blessing-desc {
+  font-size: 12px;
+  line-height: 1.4;
+  opacity: 0.8;
+}
+
+.blessing-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.blessing-list .sidebar-section-title {
+  width: 100%;
+}
+
+.blessing-chip {
+  font-size: 12px;
+  background: #131722;
+  border: 1px solid #262c3b;
+  border-radius: 14px;
+  padding: 4px 10px;
+  cursor: help;
+}
+
+.blessing-chip b {
+  color: #f2c879;
+}
+
+/* --- Raridade das bênçãos --- */
+
+.blessing-card {
+  position: relative;
+}
+
+.blessing-rarity {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  opacity: 0.85;
+}
+
+.blessing-card.rarity-common .blessing-rarity {
+  color: #9aa3b5;
+}
+
+.blessing-card.rarity-uncommon {
+  border-color: #3f8f6a;
+}
+
+.blessing-card.rarity-uncommon .blessing-rarity {
+  color: #6fd6a2;
+}
+
+.blessing-card.rarity-rare {
+  border-color: #b98a2e;
+  background: linear-gradient(180deg, #2a2412 0%, #1c2130 70%);
+  box-shadow: 0 0 16px rgba(255, 200, 90, 0.25);
+}
+
+.blessing-card.rarity-rare .blessing-rarity {
+  color: #ffd75e;
+}
+
+.blessing-chip.rarity-uncommon {
+  border-color: #3f8f6a;
+}
+
+.blessing-chip.rarity-rare {
+  border-color: #b98a2e;
+}
