@@ -1,7 +1,7 @@
 import { CELL, COLS, ROWS, CORE_COL, CORE_ROW, cellCenter, inBounds, isCoreCell, pixelToCell } from "./grid";
-import { Tower, Enemy, towerRangeDef, type ShotEffect, type DamagePopup } from "./entities";
+import { Tower, Enemy, towerRangeDef, isDirectional, shapeCells, facingVector, cellKey, type ShotEffect, type DamagePopup } from "./entities";
 import { buildSprites, type SpriteSet, TOWER_ARM_PIVOT } from "./sprites";
-import type { TowerKind, EnemyKind } from "./types";
+import type { TowerKind, EnemyKind, Facing } from "./types";
 import { NO_META_MODIFIERS, type MetaModifiers } from "./meta";
 import type { AudioEngine } from "./audio";
 
@@ -122,6 +122,26 @@ function towerCost(builtCount: number): number {
 
 const SELL_REFUND_RATIO = 0.5;
 
+// Limite de torres no mapa ao mesmo tempo (provisório — vai virar parte do
+// futuro "deck building" de torres).
+export const MAX_TOWERS = 10;
+
+// Ao clicar numa célula pra construir, o jogo entra em câmera lenta enquanto
+// o jogador escolhe pra onde a torre fica virada.
+const PLACEMENT_TIME_SCALE = 0.5;
+
+const FACINGS: Facing[] = ["up", "right", "down", "left"];
+const ARROW_KEYS: Record<string, Facing> = {
+  ArrowUp: "up",
+  ArrowRight: "right",
+  ArrowDown: "down",
+  ArrowLeft: "left",
+  KeyW: "up",
+  KeyD: "right",
+  KeyS: "down",
+  KeyA: "left",
+};
+
 interface Hud {
   favor: HTMLElement;
   coreHp: HTMLElement;
@@ -143,6 +163,7 @@ interface SavedTower {
   col: number;
   row: number;
   cost: number;
+  facing?: Facing; // ausente em saves de antes da orientação existir
 }
 
 export interface SelectedTowerInfo {
@@ -178,7 +199,7 @@ export interface SaveData {
 
 export interface GameOptions {
   onRunEnd: (stats: RunStats) => void;
-  onTowersChanged: (builtKinds: Set<TowerKind>) => void;
+  onTowersChanged: (builtKinds: Set<TowerKind>, towerCount: number) => void;
   onTowerSelected: (info: SelectedTowerInfo | null) => void;
   meta?: MetaModifiers;
   audio?: AudioEngine;
@@ -188,7 +209,7 @@ export class Game {
   private readonly ctx: CanvasRenderingContext2D;
   private readonly hud: Hud;
   private readonly onRunEnd: (stats: RunStats) => void;
-  private readonly onTowersChanged: (builtKinds: Set<TowerKind>) => void;
+  private readonly onTowersChanged: (builtKinds: Set<TowerKind>, towerCount: number) => void;
   private readonly onTowerSelected: (info: SelectedTowerInfo | null) => void;
   private readonly audio?: AudioEngine;
   private readonly sprites: SpriteSet;
@@ -211,6 +232,9 @@ export class Game {
   private selectedKind: TowerKind = "zeus";
   private selectedTower: Tower | null = null;
   private hoverCell: { col: number; row: number } | null = null;
+  // Construção pendente: célula já escolhida, esperando a orientação.
+  private placing: { col: number; row: number; facing: Facing } | null = null;
+  private lastFacing: Facing = "right";
   private running = false;
   private gameOver = false;
   private lastTs = 0;
@@ -243,6 +267,11 @@ export class Game {
     canvas.addEventListener("mouseleave", () => {
       this.hoverCell = null;
     });
+    canvas.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      this.cancelPlacement();
+    });
+    window.addEventListener("keydown", (e) => this.handleKey(e));
 
     this.updateHud();
     this.notifyTowersChanged();
@@ -272,6 +301,7 @@ export class Game {
   // Pausa o loop sem resetar nada — usado ao voltar pro menu no meio de uma run.
   pause(): void {
     this.running = false;
+    this.placing = null;
   }
 
   // Vende a torre selecionada (clicada no grid), devolvendo metade do Favor
@@ -312,6 +342,7 @@ export class Game {
     this.bossDefeated = false;
     this.bossBanner = 0;
     this.gameOver = false;
+    this.placing = null;
     this.selectTower(null);
     this.updateHud();
     this.notifyTowersChanged();
@@ -331,7 +362,7 @@ export class Game {
       bossSpawned: this.bossSpawned,
       bossDefeated: this.bossDefeated,
       selectedKind: this.selectedKind,
-      towers: this.towers.map((t) => ({ kind: t.kind, col: t.col, row: t.row, cost: t.cost })),
+      towers: this.towers.map((t) => ({ kind: t.kind, col: t.col, row: t.row, cost: t.cost, facing: t.facing })),
       enemies: this.enemies
         .filter((e) => !e.dying)
         .map((e) => ({
@@ -353,7 +384,7 @@ export class Game {
   loadFrom(data: SaveData): void {
     // Saves feitos com outro tamanho de célula: converte posições/velocidades em px.
     const k = CELL / (data.cell ?? 48);
-    this.towers = data.towers.map((t) => new Tower(t.kind, t.col, t.row, t.cost));
+    this.towers = data.towers.map((t) => new Tower(t.kind, t.col, t.row, t.cost, t.facing ?? "right"));
     this.enemies = data.enemies.map((e) => {
       const enemy = new Enemy(e.kind, e.x * k, e.y * k, e.hp, e.speed * k, e.damage, e.favorReward, e.radius * k);
       enemy.hpLeft = e.hpLeft;
@@ -372,6 +403,7 @@ export class Game {
     this.bossBanner = 0;
     this.selectedKind = data.selectedKind;
     this.gameOver = false;
+    this.placing = null;
     this.selectTower(null);
     this.updateHud();
     this.notifyTowersChanged();
@@ -392,12 +424,13 @@ export class Game {
     for (const [kind, count] of counts) {
       if (count >= this.allowedCountFor(kind)) maxed.add(kind);
     }
-    this.onTowersChanged(maxed);
+    this.onTowersChanged(maxed, this.towers.length);
   }
 
   private loop = (ts: number): void => {
     if (!this.running) return;
-    const dt = Math.min((ts - this.lastTs) / 1000, MAX_DT) * this.speedMultiplier;
+    const timeScale = this.placing ? PLACEMENT_TIME_SCALE : this.speedMultiplier;
+    const dt = Math.min((ts - this.lastTs) / 1000, MAX_DT) * timeScale;
     this.lastTs = ts;
 
     if (!this.gameOver) {
@@ -435,6 +468,8 @@ export class Game {
 
     for (const popup of this.popups) popup.age += dt;
     this.popups = this.popups.filter((p) => p.age < p.ttl);
+
+    if (this.coreHp <= 0 || this.elapsed >= RUN_DURATION) this.placing = null;
 
     if (this.coreHp <= 0) {
       this.coreHp = 0;
@@ -610,9 +645,34 @@ export class Game {
         return this.findNearestInDiamond(tower);
       case "radius":
         return this.findAllInRadius(tower);
+      case "shape":
+        return this.findInShape(tower);
       default:
         return [];
     }
+  }
+
+  // Egípcios — inimigos nas células do formato da torre (já rotacionado pra
+  // orientação dela): todos, ou só o mais próximo, conforme a torre.
+  private findInShape(tower: Tower): Enemy[] {
+    const hits: Enemy[] = [];
+    for (const enemy of this.enemies) {
+      if (enemy.dying) continue;
+      const cell = pixelToCell(enemy.x, enemy.y);
+      if (tower.shapeKeys.has(cellKey(cell.col, cell.row))) hits.push(enemy);
+    }
+    if (tower.shapeTarget === "all" || hits.length <= 1) return hits;
+
+    let best = hits[0];
+    let bestDist = Infinity;
+    for (const enemy of hits) {
+      const d = Math.hypot(enemy.x - tower.x, enemy.y - tower.y);
+      if (d < bestDist) {
+        bestDist = d;
+        best = enemy;
+      }
+    }
+    return [best];
   }
 
   // Zeus/Ártemis — alvo único mais próximo em toda a linha/coluna do grid.
@@ -692,13 +752,23 @@ export class Game {
     return hits;
   }
 
+  // Construção em duas etapas: 1º clique escolhe a célula e põe o jogo em
+  // câmera lenta; aí o jogador aponta o mouse (ou usa setas/WASD) pra
+  // escolher a orientação e confirma com outro clique (ou Enter/Espaço).
+  // Botão direito ou Esc cancela.
   private handleClick(e: MouseEvent, canvas: HTMLCanvasElement): void {
     if (this.gameOver) return;
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-    const { col, row } = pixelToCell(x, y);
 
+    if (this.placing) {
+      this.updatePlacementFacing(x, y);
+      this.confirmPlacement();
+      return;
+    }
+
+    const { col, row } = pixelToCell(x, y);
     if (!inBounds(col, row)) return;
 
     // Clicar numa torre já construída a seleciona (pra vender) em vez de
@@ -710,20 +780,10 @@ export class Game {
     }
     if (this.selectedTower) this.selectTower(null);
 
-    if (isCoreCell(col, row)) return;
+    if (isCoreCell(col, row) || !this.canBuildSelected() || this.favor < this.nextTowerCost()) return;
 
-    const builtOfKind = this.towers.filter((t) => t.kind === this.selectedKind).length;
-    if (builtOfKind >= this.allowedCountFor(this.selectedKind)) return;
-
-    const isFreeFirstTower = this.meta.freeFirstTower && this.towers.length === 0;
-    const cost = isFreeFirstTower ? 0 : towerCost(this.towers.length);
-    if (this.favor < cost) return;
-
-    this.favor -= cost;
-    this.towers.push(new Tower(this.selectedKind, col, row, cost));
-    this.audio?.build();
-    this.updateHud();
-    this.notifyTowersChanged();
+    this.placing = { col, row, facing: this.lastFacing };
+    this.audio?.click();
   }
 
   private handleHover(e: MouseEvent, canvas: HTMLCanvasElement): void {
@@ -732,6 +792,63 @@ export class Game {
     const y = e.clientY - rect.top;
     const { col, row } = pixelToCell(x, y);
     this.hoverCell = inBounds(col, row) ? { col, row } : null;
+    if (this.placing) this.updatePlacementFacing(x, y);
+  }
+
+  private handleKey(e: KeyboardEvent): void {
+    if (!this.placing || !this.running) return;
+    const facing = ARROW_KEYS[e.code];
+    if (facing) {
+      this.placing.facing = facing;
+      e.preventDefault();
+    } else if (e.code === "Enter" || e.code === "Space") {
+      this.confirmPlacement();
+      e.preventDefault();
+    } else if (e.code === "Escape") {
+      this.cancelPlacement();
+    }
+  }
+
+  // A orientação segue o lado da célula pra onde o cursor aponta. Com o
+  // cursor em cima da própria célula, mantém a orientação atual.
+  private updatePlacementFacing(x: number, y: number): void {
+    if (!this.placing) return;
+    const center = cellCenter(this.placing.col, this.placing.row);
+    const dx = x - center.x;
+    const dy = y - center.y;
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < CELL / 2) return;
+    this.placing.facing = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "right" : "left") : dy > 0 ? "down" : "up";
+  }
+
+  private confirmPlacement(): void {
+    const p = this.placing;
+    if (!p) return;
+    this.placing = null;
+    // Revalida: durante a câmera lenta o jogador pode ter trocado a torre escolhida.
+    const cost = this.nextTowerCost();
+    if (!this.canBuildSelected() || this.favor < cost) return;
+
+    this.favor -= cost;
+    this.lastFacing = p.facing;
+    this.towers.push(new Tower(this.selectedKind, p.col, p.row, cost, p.facing));
+    this.audio?.build();
+    this.updateHud();
+    this.notifyTowersChanged();
+  }
+
+  private cancelPlacement(): void {
+    this.placing = null;
+  }
+
+  private canBuildSelected(): boolean {
+    if (this.towers.length >= MAX_TOWERS) return false;
+    const builtOfKind = this.towers.filter((t) => t.kind === this.selectedKind).length;
+    return builtOfKind < this.allowedCountFor(this.selectedKind);
+  }
+
+  private nextTowerCost(): number {
+    const isFreeFirstTower = this.meta.freeFirstTower && this.towers.length === 0;
+    return isFreeFirstTower ? 0 : towerCost(this.towers.length);
   }
 
   private updateHud(): void {
@@ -739,8 +856,7 @@ export class Game {
     this.hud.coreHp.textContent = `${Math.ceil(this.coreHp)}/${CORE_MAX_HP}`;
     this.hud.time.textContent = formatTime(this.elapsed);
     this.hud.kills.textContent = String(this.kills);
-    const nextIsFree = this.meta.freeFirstTower && this.towers.length === 0;
-    this.hud.nextCost.textContent = String(nextIsFree ? 0 : towerCost(this.towers.length));
+    this.hud.nextCost.textContent = String(this.nextTowerCost());
   }
 
   private render(): void {
@@ -764,24 +880,35 @@ export class Game {
     }
 
     // hover highlight + pré-visualização de alcance (laranja translúcido)
-    if (this.hoverCell && !this.gameOver) {
+    if (this.hoverCell && !this.gameOver && !this.placing) {
       const h = this.hoverCell;
       const occupiedCell = isCoreCell(h.col, h.row) || this.towers.some((t) => t.col === h.col && t.row === h.row);
-      const builtOfKind = this.towers.filter((t) => t.kind === this.selectedKind).length;
-      const kindMaxed = builtOfKind >= this.allowedCountFor(this.selectedKind);
-      const freeFirst = this.meta.freeFirstTower && this.towers.length === 0;
-      const affordable = freeFirst || this.favor >= towerCost(this.towers.length);
-      const blocked = occupiedCell || kindMaxed;
+      const affordable = this.favor >= this.nextTowerCost();
+      const blocked = occupiedCell || !this.canBuildSelected();
 
       if (blocked) {
         ctx.fillStyle = "rgba(220,80,80,0.12)";
         ctx.fillRect(h.col * CELL, h.row * CELL, CELL, CELL);
       } else {
-        this.renderRangePreview(h.col, h.row);
-        this.renderTowerGhost(h.col, h.row);
+        this.renderRangePreview(h.col, h.row, this.lastFacing);
+        this.renderTowerGhost(h.col, h.row, this.lastFacing);
         ctx.strokeStyle = affordable ? "rgba(120,200,255,0.85)" : "rgba(150,150,150,0.7)";
         ctx.lineWidth = 2;
         ctx.strokeRect(h.col * CELL + 1, h.row * CELL + 1, CELL - 2, CELL - 2);
+      }
+    }
+
+    // escolha de orientação: alcance na orientação atual + setas nos 4 lados
+    if (this.placing) {
+      const p = this.placing;
+      this.renderRangePreview(p.col, p.row, p.facing);
+      this.renderTowerGhost(p.col, p.row, p.facing);
+      ctx.strokeStyle = "rgba(242,200,121,0.95)";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(p.col * CELL + 1, p.row * CELL + 1, CELL - 2, CELL - 2);
+      for (const facing of FACINGS) {
+        const active = facing === p.facing;
+        this.renderFacingArrow(p.col, p.row, facing, active ? "#f2c879" : "rgba(232,230,223,0.35)", active ? 1.25 : 0.9, CELL * 0.62);
       }
     }
 
@@ -819,6 +946,7 @@ export class Game {
 
       ctx.save();
       ctx.translate(tower.x, tower.y + bob);
+      if (tower.facing === "left") ctx.scale(-1, 1); // virada pra esquerda: espelha a sprite
       ctx.rotate(bodyLean);
       ctx.drawImage(spriteSet.body, -CELL / 2, -CELL / 2, CELL, CELL);
 
@@ -842,6 +970,9 @@ export class Game {
       if (tower.kind === "hades") this.renderAura(tower, "rgba(143,217,196,0.5)");
       if (tower.kind === "hera") this.renderAura(tower, "rgba(242,200,121,0.5)", CELL * 0.55);
       if (tower.kind === "hermes") this.renderAura(tower, "rgba(79,174,138,0.55)", CELL * 0.55);
+
+      // Torres direcionais: setinha na borda da célula indicando pra onde olham.
+      if (isDirectional(tower.kind)) this.renderFacingArrow(tower.col, tower.row, tower.facing, "rgba(242,200,121,0.8)", 0.7);
 
       if (tower === this.selectedTower) {
         const pulse = 0.5 + Math.sin(this.elapsed * 6) * 0.5;
@@ -928,16 +1059,60 @@ export class Game {
       ctx.fillText("UM TITÃ SE APROXIMA", (COLS * CELL) / 2, 34);
       ctx.restore();
     }
+
+    // aviso de câmera lenta enquanto escolhe a orientação
+    if (this.placing) {
+      const w = COLS * CELL;
+      const h = ROWS * CELL;
+      ctx.save();
+      ctx.fillStyle = "rgba(10,12,18,0.75)";
+      ctx.fillRect(0, h - 34, w, 34);
+      ctx.textAlign = "center";
+      ctx.font = "600 14px system-ui, sans-serif";
+      ctx.fillStyle = "#f2c879";
+      ctx.fillText("◷ Câmera lenta — escolha a orientação · clique confirma · Esc cancela", w / 2, h - 12);
+      ctx.restore();
+    }
+  }
+
+  // Setinha triangular encostada na borda da célula, apontando pra `facing`.
+  private renderFacingArrow(col: number, row: number, facing: Facing, color: string, scale: number, dist = CELL * 0.42): void {
+    const ctx = this.ctx;
+    const center = cellCenter(col, row);
+    const { dc, dr } = facingVector(facing);
+    const s = 7 * scale;
+    ctx.save();
+    ctx.translate(center.x + dc * dist, center.y + dr * dist);
+    ctx.rotate(Math.atan2(dr, dc));
+    ctx.fillStyle = color;
+    ctx.strokeStyle = "rgba(10,12,18,0.8)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(s, 0);
+    ctx.lineTo(-s * 0.6, -s * 0.8);
+    ctx.lineTo(-s * 0.6, s * 0.8);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.fill();
+    ctx.restore();
   }
 
   // Pré-visualização de alcance: mostra em laranja translúcido exatamente
   // quais células (ou qual raio) a torre selecionada cobriria se construída
   // na célula sob o cursor — mesma geometria usada em acquireTargets.
-  private renderRangePreview(col: number, row: number): void {
+  private renderRangePreview(col: number, row: number, facing: Facing): void {
     const { rangePattern, rangeCells } = towerRangeDef(this.selectedKind);
     if (rangePattern === "none") return;
 
     const ctx = this.ctx;
+
+    if (rangePattern === "shape") {
+      ctx.fillStyle = RANGE_PREVIEW_COLOR;
+      for (const cell of shapeCells(this.selectedKind, col, row, facing)) {
+        ctx.fillRect(cell.col * CELL, cell.row * CELL, CELL, CELL);
+      }
+      return;
+    }
 
     if (rangePattern === "radius") {
       const center = cellCenter(col, row);
@@ -976,13 +1151,14 @@ export class Game {
 
   // Sprite "fantasma" semitransparente da torre selecionada, na pose de
   // descanso, mostrando como ela vai ficar se construída ali.
-  private renderTowerGhost(col: number, row: number): void {
+  private renderTowerGhost(col: number, row: number, facing: Facing): void {
     const ctx = this.ctx;
     const center = cellCenter(col, row);
     const spriteSet = this.sprites.towers[this.selectedKind];
     ctx.save();
     ctx.globalAlpha = 0.45;
     ctx.translate(center.x, center.y);
+    if (facing === "left") ctx.scale(-1, 1);
     ctx.drawImage(spriteSet.body, -CELL / 2, -CELL / 2, CELL, CELL);
     ctx.drawImage(spriteSet.arm, -CELL / 2, -CELL / 2, CELL, CELL);
     ctx.restore();

@@ -1,5 +1,5 @@
 import "./style.css";
-import { Game, type SelectedTowerInfo } from "./game/Game";
+import { Game, MAX_TOWERS, type SelectedTowerInfo } from "./game/Game";
 import { saveGame, loadGame, hasSavedGame } from "./game/save";
 import { buildSprites, buildTowerIcon } from "./game/sprites";
 import { AudioEngine } from "./game/audio";
@@ -19,17 +19,34 @@ import {
 } from "./game/meta";
 import type { TowerKind } from "./game/types";
 
-const TOWER_OPTIONS: { kind: TowerKind; name: string; description: string; active: boolean }[] = [
-  { kind: "zeus", name: "Zeus", description: "Atira no inimigo mais próximo em toda a linha ou coluna da grade. Alcance infinito e dano alto, mas só atinge 1 por vez.", active: true },
-  { kind: "artemis", name: "Ártemis", description: "Mesmo alcance de Zeus (linha/coluna inteira), mas atira muito mais rápido e com menos dano por flecha.", active: true },
-  { kind: "poseidon", name: "Poseidon", description: "Acerta TODOS os inimigos na sua linha e coluna de uma vez, não só o mais próximo.", active: true },
-  { kind: "ares", name: "Ares", description: "Dano enorme num único inimigo bem próximo — alcance curto, formato de losango.", active: true },
-  { kind: "athena", name: "Atena", description: "Dano em área: atinge todos os inimigos dentro de um raio ao redor dela.", active: true },
-  { kind: "demeter", name: "Deméter", description: "Dano fraco mas constante em todos os inimigos logo ao redor (cima/baixo/esquerda/direita).", active: true },
-  { kind: "thor", name: "Thor", description: "Martelo de área: atinge todos os inimigos próximos nas 4 direções.", active: true },
-  { kind: "hera", name: "Hera", description: "Não ataca. Enquanto estiver viva no mapa, aumenta o dano de todas as outras torres em 15%.", active: false },
-  { kind: "hades", name: "Hades", description: "Não ataca. Retarda em 50% os inimigos que chegarem perto dela.", active: false },
-  { kind: "hermes", name: "Hermes", description: "Não ataca. Dobra a velocidade com que você ganha Favor.", active: false },
+type TowerGroup = "greekActive" | "greekPassive" | "norse" | "egyptian";
+
+const TOWER_GROUP_TITLES: Record<TowerGroup, string> = {
+  greekActive: "Gregos · Ativo",
+  greekPassive: "Gregos · Passivo",
+  norse: "Nórdico",
+  egyptian: "Egípcios · Direcionais",
+};
+
+const TOWER_OPTIONS: { kind: TowerKind; name: string; description: string; group: TowerGroup }[] = [
+  { kind: "zeus", name: "Zeus", description: "Atira no inimigo mais próximo em toda a linha ou coluna da grade. Alcance infinito e dano alto, mas só atinge 1 por vez.", group: "greekActive" },
+  { kind: "artemis", name: "Ártemis", description: "Mesmo alcance de Zeus (linha/coluna inteira), mas atira muito mais rápido e com menos dano por flecha.", group: "greekActive" },
+  { kind: "poseidon", name: "Poseidon", description: "Acerta TODOS os inimigos na sua linha e coluna de uma vez, não só o mais próximo.", group: "greekActive" },
+  { kind: "ares", name: "Ares", description: "Dano enorme num único inimigo bem próximo — alcance curto, formato de losango.", group: "greekActive" },
+  { kind: "athena", name: "Atena", description: "Dano em área: atinge todos os inimigos dentro de um raio ao redor dela.", group: "greekActive" },
+  { kind: "demeter", name: "Deméter", description: "Dano fraco mas constante em todos os inimigos logo ao redor (cima/baixo/esquerda/direita).", group: "greekActive" },
+  { kind: "hera", name: "Hera", description: "Não ataca. Enquanto estiver viva no mapa, aumenta o dano de todas as outras torres em 15%.", group: "greekPassive" },
+  { kind: "hades", name: "Hades", description: "Não ataca. Retarda em 50% os inimigos que chegarem perto dela.", group: "greekPassive" },
+  { kind: "hermes", name: "Hermes", description: "Não ataca. Dobra a velocidade com que você ganha Favor.", group: "greekPassive" },
+  { kind: "thor", name: "Thor", description: "Martelo de área: atinge todos os inimigos próximos nas 4 direções.", group: "norse" },
+  { kind: "ra", name: "Rá", description: "Raio de sol em linha reta PRA FRENTE, até a borda do mapa. Acerta todos os inimigos no caminho.", group: "egyptian" },
+  { kind: "horus", name: "Hórus", description: "Olhar de falcão: só enxerga as duas diagonais da frente (até 4 casas). Dano alto num único alvo.", group: "egyptian" },
+  { kind: "anubis", name: "Anúbis", description: "Cone que se abre à frente (1, depois 3, depois 5 casas de largura). Acerta todos dentro do cone.", group: "egyptian" },
+  { kind: "sekhmet", name: "Sekhmet", description: "Salta por cima da linha logo à frente: acerta as 2 linhas seguintes inteiras (X+2 e X+3), mas nunca a X+1.", group: "egyptian" },
+  { kind: "thoth", name: "Thoth", description: "Artilharia: bloco 3x3 a 4 casas de distância, pra frente. Não acerta nada perto dele.", group: "egyptian" },
+  { kind: "sobek", name: "Sobek", description: "Mordida: só as 2 casas logo à frente, um alvo por vez — mas é o maior dano do jogo.", group: "egyptian" },
+  { kind: "bastet", name: "Bastet", description: "Patadas rápidas e fracas nas 3 casas encostadas à frente (frente + diagonais).", group: "egyptian" },
+  { kind: "isis", name: "Ísis", description: "Abre as asas: acerta só pros LADOS (até 3 casas de cada lado), nunca pra frente ou pra trás.", group: "egyptian" },
 ];
 
 const BRANCH_TITLES: Record<UpgradeDef["branch"], string> = {
@@ -60,7 +77,7 @@ const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `
   <div id="menu">
     <h1>Myth TD <span class="subtitle">— protótipo</span></h1>
-    <p class="tagline">Tower defense roguelite mitológico. Defenda o núcleo com deuses gregos (e um nórdico).</p>
+    <p class="tagline">Tower defense roguelite mitológico. Defenda o núcleo com deuses gregos, egípcios (e um nórdico).</p>
     <div class="menu-actions">
       <button id="menu-new">Novo Jogo</button>
       <button id="menu-load">Carregar Jogo</button>
@@ -93,18 +110,22 @@ app.innerHTML = `
     </div>
     <div class="game-layout">
       <aside class="tower-sidebar">
-        <h3 class="sidebar-section-title">Ativo</h3>
-        ${TOWER_OPTIONS.filter((t) => t.active)
-          .map((t, i) => towerSlotHtml(t, i === 0))
+        ${(Object.keys(TOWER_GROUP_TITLES) as TowerGroup[])
+          .map(
+            (group) => `
+          <h3 class="sidebar-section-title">${TOWER_GROUP_TITLES[group]}</h3>
+          <div class="tower-grid">
+            ${TOWER_OPTIONS.filter((t) => t.group === group)
+              .map((t) => towerSlotHtml(t, t.kind === "zeus"))
+              .join("")}
+          </div>`,
+          )
           .join("")}
-        <h3 class="sidebar-section-title">Passivo</h3>
-        ${TOWER_OPTIONS.filter((t) => !t.active)
-          .map((t) => towerSlotHtml(t, false))
-          .join("")}
+        <div class="tower-count" id="tower-count">Torres: <b>0/${MAX_TOWERS}</b></div>
       </aside>
       <div class="game-main">
         <canvas id="game-canvas"></canvas>
-        <p class="hint">Clique numa célula vazia do grid pra construir a torre escolhida, ou numa torre já construída pra selecioná-la e vendê-la. O núcleo fica no centro — não deixe os inimigos chegarem até ele.</p>
+        <p class="hint">Clique numa célula vazia pra construir a torre escolhida: o jogo entra em câmera lenta e você escolhe pra onde ela fica virada (aponte o mouse ou use setas/WASD, depois clique ou Enter; Esc ou botão direito cancela). A orientação só muda o alcance dos egípcios. Clique numa torre já construída pra selecioná-la e vendê-la.</p>
       </div>
     </div>
   </div>
@@ -158,6 +179,7 @@ const goAmbrosia = document.querySelector<HTMLElement>("#go-ambrosia")!;
 const restartBtn = document.querySelector<HTMLButtonElement>("#go-restart")!;
 const goMenuBtn = document.querySelector<HTMLButtonElement>("#go-menu")!;
 const towerButtons = document.querySelectorAll<HTMLButtonElement>(".tower-btn");
+const towerCountEl = document.querySelector<HTMLElement>("#tower-count")!;
 
 // Ícones da sidebar: um "retrato" (topo da sprite, cabeça/cocar/ombros) por
 // torre — bem mais fácil de identificar do que um emoji genérico.
@@ -193,13 +215,15 @@ const game = new Game(canvas, hud, {
     overlay.classList.add("visible");
     saveBtn.disabled = true;
   },
-  onTowersChanged: (builtKinds) => {
+  onTowersChanged: (builtKinds, towerCount) => {
     for (const btn of towerButtons) {
       const kind = btn.dataset.kind as TowerKind;
       const already = builtKinds.has(kind);
       btn.disabled = already;
       btn.classList.toggle("built", already);
     }
+    towerCountEl.innerHTML = `Torres: <b>${towerCount}/${MAX_TOWERS}</b>`;
+    towerCountEl.classList.toggle("full", towerCount >= MAX_TOWERS);
   },
   onTowerSelected: (info: SelectedTowerInfo | null) => {
     if (!info) {

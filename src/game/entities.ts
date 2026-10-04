@@ -1,5 +1,5 @@
-import { cellCenter } from "./grid";
-import type { TowerKind, EnemyKind } from "./types";
+import { cellCenter, inBounds, COLS, ROWS, type Cell } from "./grid";
+import type { TowerKind, EnemyKind, Facing } from "./types";
 
 export type RangePattern =
   | "line" // alvo único mais próximo em toda a linha/coluna do grid
@@ -7,18 +7,53 @@ export type RangePattern =
   | "cross" // todos os inimigos num raio curto, só nas 4 direções cardeais
   | "diamond" // alvo único mais próximo dentro de um raio (distância Manhattan)
   | "radius" // todos os inimigos num raio circular curto ao redor da torre
+  | "shape" // conjunto fixo de células relativo à orientação da torre (egípcios)
   | "none"; // torre passiva (não ataca) — efeito de aura constante
+
+// Célula relativa à torre, no referencial dela: `f` = quantas casas pra
+// frente (negativo = pra trás), `l` = quantas casas pro lado.
+type Offset = [f: number, l: number];
 
 interface TowerDef {
   damage: number;
   fireInterval: number;
   rangePattern: RangePattern;
-  rangeCells: number; // alcance em células de grid; ignorado por "line"/"lineArea"
+  rangeCells: number; // alcance em células de grid; ignorado por "line"/"lineArea"/"shape"
+  shape?: Offset[]; // só "shape"
+  shapeTarget?: "all" | "nearest"; // só "shape": acerta todos na área ou só o mais próximo
 }
 
-// Elenco de torres mitológicas. Foco atual: panteão grego (8 torres mínimas
-// pedidas) + Thor (nórdico, implementado antes do pivô de foco). Ver GDD >
-// Torres Mitológicas.
+const LONGEST = Math.max(COLS, ROWS);
+
+function range(from: number, to: number): number[] {
+  const out: number[] = [];
+  for (let i = from; i <= to; i++) out.push(i);
+  return out;
+}
+
+// Formatos de alcance do panteão egípcio — a gimmick deles. Escritos como se
+// a torre estivesse virada pra direita; shapeCells() rotaciona pra orientação real.
+const SHAPES = {
+  // Rá: raio de sol em linha reta pra frente, até a borda do mapa.
+  ra: range(1, LONGEST).map((f): Offset => [f, 0]),
+  // Hórus: só as duas diagonais frontais, olhar de falcão.
+  horus: range(1, 4).flatMap((k): Offset[] => [[k, k], [k, -k]]),
+  // Anúbis: cone que se abre à frente (1, 3 e 5 células de largura).
+  anubis: [[1, 0], [2, -1], [2, 0], [2, 1], [3, -2], [3, -1], [3, 0], [3, 1], [3, 2]] as Offset[],
+  // Sekhmet: salta por cima da linha logo à frente — acerta as linhas X+2 e X+3 inteiras.
+  sekhmet: [2, 3].flatMap((f) => range(-LONGEST, LONGEST).map((l): Offset => [f, l])),
+  // Thoth: artilharia — bloco 3x3 centrado 4 casas à frente; não acerta nada perto.
+  thoth: range(3, 5).flatMap((f) => range(-1, 1).map((l): Offset => [f, l])),
+  // Sobek: mordida curta, só as 2 casas logo à frente.
+  sobek: [[1, 0], [2, 0]] as Offset[],
+  // Bastet: patada nas 3 casas encostadas à frente (frente + diagonais).
+  bastet: [[1, -1], [1, 0], [1, 1]] as Offset[],
+  // Ísis: abre as asas — acerta só pros lados, nunca pra frente ou pra trás.
+  isis: range(1, 3).flatMap((l): Offset[] => [[0, l], [0, -l]]),
+};
+
+// Elenco de torres mitológicas: panteão grego, Thor (nórdico) e panteão
+// egípcio (alcance direcional). Ver GDD > Torres Mitológicas.
 const TOWER_DEFS: Record<TowerKind, TowerDef> = {
   // Zeus: rei dos deuses — alvo único, alcance infinito em linha/coluna, dano alto.
   zeus: { damage: 22, fireInterval: 0.65, rangePattern: "line", rangeCells: 0 },
@@ -40,6 +75,24 @@ const TOWER_DEFS: Record<TowerKind, TowerDef> = {
   hades: { damage: 0, fireInterval: Infinity, rangePattern: "none", rangeCells: 2 },
   // Hermes: mensageiro/comércio — não ataca; aura passiva que dobra a regeneração de Favor.
   hermes: { damage: 0, fireInterval: Infinity, rangePattern: "none", rangeCells: 0 },
+
+  // --- Egípcios: o que importa é a orientação (ver SHAPES acima) ---
+  // Rá: linha frontal até a borda, acerta todos — um Poseidon de mão única, mais forte.
+  ra: { damage: 22, fireInterval: 0.9, rangePattern: "shape", rangeCells: 0, shape: SHAPES.ra, shapeTarget: "all" },
+  // Hórus: diagonais frontais, alvo único, dano alto.
+  horus: { damage: 38, fireInterval: 0.55, rangePattern: "shape", rangeCells: 0, shape: SHAPES.horus, shapeTarget: "nearest" },
+  // Anúbis: cone frontal, área.
+  anubis: { damage: 20, fireInterval: 0.8, rangePattern: "shape", rangeCells: 0, shape: SHAPES.anubis, shapeTarget: "all" },
+  // Sekhmet: duas linhas inteiras, pulando a primeira; área enorme, cadência lenta.
+  sekhmet: { damage: 18, fireInterval: 1.2, rangePattern: "shape", rangeCells: 0, shape: SHAPES.sekhmet, shapeTarget: "all" },
+  // Thoth: artilharia em bloco 3x3 distante, área.
+  thoth: { damage: 31, fireInterval: 1.3, rangePattern: "shape", rangeCells: 0, shape: SHAPES.thoth, shapeTarget: "all" },
+  // Sobek: mordida de alcance mínimo, alvo único, o maior dano do jogo.
+  sobek: { damage: 82, fireInterval: 0.8, rangePattern: "shape", rangeCells: 0, shape: SHAPES.sobek, shapeTarget: "nearest" },
+  // Bastet: patadas rápidas e fracas nas 3 casas à frente.
+  bastet: { damage: 10, fireInterval: 0.3, rangePattern: "shape", rangeCells: 0, shape: SHAPES.bastet, shapeTarget: "all" },
+  // Ísis: asas laterais, área.
+  isis: { damage: 15, fireInterval: 0.6, rangePattern: "shape", rangeCells: 0, shape: SHAPES.isis, shapeTarget: "all" },
 };
 
 // Dados de alcance de um tipo de torre, sem precisar instanciar uma — usado
@@ -47,6 +100,42 @@ const TOWER_DEFS: Record<TowerKind, TowerDef> = {
 export function towerRangeDef(kind: TowerKind): { rangePattern: RangePattern; rangeCells: number } {
   const def = TOWER_DEFS[kind];
   return { rangePattern: def.rangePattern, rangeCells: def.rangeCells };
+}
+
+// Torres cujo alcance depende da orientação escolhida.
+export function isDirectional(kind: TowerKind): boolean {
+  return TOWER_DEFS[kind].rangePattern === "shape";
+}
+
+const FACING_VECTORS: Record<Facing, { dc: number; dr: number }> = {
+  up: { dc: 0, dr: -1 },
+  right: { dc: 1, dr: 0 },
+  down: { dc: 0, dr: 1 },
+  left: { dc: -1, dr: 0 },
+};
+
+export function facingVector(facing: Facing): { dc: number; dr: number } {
+  return FACING_VECTORS[facing];
+}
+
+// Células absolutas (dentro do grid) cobertas por uma torre "shape" numa
+// posição/orientação. Mesma geometria usada pra mirar e pra pré-visualizar.
+export function shapeCells(kind: TowerKind, col: number, row: number, facing: Facing): Cell[] {
+  const shape = TOWER_DEFS[kind].shape;
+  if (!shape) return [];
+  const { dc, dr } = FACING_VECTORS[facing];
+  const cells: Cell[] = [];
+  for (const [f, l] of shape) {
+    // "pro lado" = vetor da frente girado 90°
+    const c = col + f * dc - l * dr;
+    const r = row + f * dr + l * dc;
+    if (inBounds(c, r)) cells.push({ col: c, row: r });
+  }
+  return cells;
+}
+
+export function cellKey(col: number, row: number): number {
+  return col * 1000 + row;
 }
 
 export class Tower {
@@ -59,6 +148,9 @@ export class Tower {
   readonly fireInterval: number;
   readonly rangePattern: RangePattern;
   readonly rangeCells: number;
+  readonly facing: Facing;
+  readonly shapeTarget: "all" | "nearest";
+  readonly shapeKeys: Set<number>; // células cobertas (cellKey), só pra "shape"
   readonly seed = Math.random() * Math.PI * 2; // fase do balanço de respiração, pra não animar em sincronia
   cooldown = 0;
 
@@ -71,7 +163,7 @@ export class Tower {
   // Favor pago por essa torre — usado pra calcular o reembolso ao vendê-la.
   readonly cost: number;
 
-  constructor(kind: TowerKind, col: number, row: number, cost = 0) {
+  constructor(kind: TowerKind, col: number, row: number, cost = 0, facing: Facing = "right") {
     const def = TOWER_DEFS[kind];
     this.kind = kind;
     this.col = col;
@@ -83,6 +175,9 @@ export class Tower {
     this.fireInterval = def.fireInterval;
     this.rangePattern = def.rangePattern;
     this.rangeCells = def.rangeCells;
+    this.facing = facing;
+    this.shapeTarget = def.shapeTarget ?? "all";
+    this.shapeKeys = new Set(shapeCells(kind, col, row, facing).map((c) => cellKey(c.col, c.row)));
     this.cost = cost;
   }
 }

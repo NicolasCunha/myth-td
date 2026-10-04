@@ -66,6 +66,29 @@ const THOR_ARMOR_SHADE = "#324b73";
 const THOR_FUR = "#cfd8e3";
 const HAMMER = "#6b7280";
 
+// Panteão egípcio — pele mais morena, saiote de linho branco, colar largo
+// de ouro e lápis-lazúli. Cada deus muda a cor do cinto/pedestal e a cabeça.
+const EG_SKIN = "#b9814f";
+const LINEN = "#efe6cf";
+const LINEN_SHADE = "#cbbf9f";
+const LAPIS = "#2f5bb7";
+const SUN = "#ff8a3d";
+const SUN_RED = "#d9452b";
+const FALCON = "#8a5a32";
+const FALCON_LIGHT = "#e9d7b0";
+const CROWN_WHITE = "#f2efe6";
+const JACKAL = "#23232c";
+const LION = "#d19a45";
+const LION_MANE = "#8f5e22";
+const CROC = "#4f7a3a";
+const CROC_LIGHT = "#86ad5c";
+const CAT = "#2b2b33";
+const CAT_EYE = "#9be36b";
+const IBIS = "#f0f0f0";
+const MOON = "#cfe3ff";
+const WIG = "#1b1a22";
+const ISIS_WING = "#3fa7a0";
+
 // Inimigos.
 const RED = "#e05a5a";
 const RED_DARK = "#8c2f2f";
@@ -486,6 +509,195 @@ function buildThorArmSprite(): HTMLCanvasElement {
   return rasterize(g);
 }
 
+// --- Panteão egípcio ---
+
+// Corpo comum egípcio (do pescoço pra baixo): peito nu, colar largo,
+// saiote de linho com cinto colorido e braço de descanso. A cabeça (quase
+// sempre animal) é desenhada por cima por cada deus.
+function egyptBody(g: Grid, belt: string, pedestal: string): void {
+  rect(g, 5, 14, 10, 15, pedestal);
+  rect(g, 5, 11, 10, 13, LINEN); // saiote (shendyt)
+  rect(g, 9, 12, 9, 13, LINEN_SHADE);
+  rect(g, 5, 11, 10, 11, belt);
+  rect(g, 6, 8, 9, 10, EG_SKIN); // peito nu
+  rect(g, 6, 8, 9, 8, GOLD); // colar largo
+  pixels(g, [[7, 9], [8, 9]], LAPIS);
+  pixels(g, [[5, 9], [4, 10], [4, 11], [4, 12]], EG_SKIN); // braço de descanso
+  pixels(g, [[4, 10]], GOLD); // bracelete
+}
+
+// Braço egípcio com o objeto na mão — mesmo ombro/pivô das outras torres.
+function egyptArm(item: (g: Grid) => void): HTMLCanvasElement {
+  const g = emptyGrid();
+  pixels(g, [[10, 7], [11, 6], [11, 5]], EG_SKIN);
+  item(g);
+  outline(g, INK);
+  return rasterize(g);
+}
+
+// Rá: cabeça de falcão coroada pelo disco solar.
+function buildRaBodySprite(): HTMLCanvasElement {
+  const g = emptyGrid();
+  egyptBody(g, SUN_RED, GOLD_DARK);
+  circle(g, 8, 1, 2, SUN); // disco solar
+  pixels(g, [[8, 0]], GOLD);
+  circle(g, 8, 5, 2.6, FALCON);
+  rect(g, 7, 5, 9, 6, FALCON_LIGHT); // rosto claro
+  pixels(g, [[8, 6], [8, 7]], GOLD_DARK); // bico
+  pixels(g, [[7, 4], [9, 4]], INK);
+  return outlined(g);
+}
+function buildRaArmSprite(): HTMLCanvasElement {
+  return egyptArm((g) => {
+    circle(g, 13, 2, 1.6, SUN); // orbe de sol na mão
+    pixels(g, [[13, 2]], GOLD);
+  });
+}
+
+// Hórus: falcão com a coroa dupla (branca e vermelha) do Egito unificado.
+function buildHorusBodySprite(): HTMLCanvasElement {
+  const g = emptyGrid();
+  egyptBody(g, LAPIS, FALCON);
+  rect(g, 6, 1, 10, 2, SUN_RED); // coroa vermelha (base)
+  rect(g, 7, 0, 9, 1, CROWN_WHITE); // coroa branca (miolo alto)
+  pixels(g, [[10, 0]], SUN_RED); // espiral da coroa vermelha
+  circle(g, 8, 5, 2.6, FALCON);
+  rect(g, 7, 5, 9, 6, FALCON_LIGHT);
+  pixels(g, [[8, 6], [8, 7]], GOLD_DARK);
+  pixels(g, [[7, 4], [9, 4]], INK);
+  pixels(g, [[6, 5]], LAPIS); // marca do olho de Hórus
+  return outlined(g);
+}
+function buildHorusArmSprite(): HTMLCanvasElement {
+  return egyptArm((g) => {
+    pixels(g, [[12, 4], [12, 3], [12, 2], [12, 1]], GOLD_DARK); // lança
+    pixels(g, [[12, 0]], BLADE);
+  });
+}
+
+// Anúbis: chacal negro de orelhas altas e pontudas.
+function buildAnubisBodySprite(): HTMLCanvasElement {
+  const g = emptyGrid();
+  egyptBody(g, GOLD, JACKAL);
+  circle(g, 8, 5, 2.6, JACKAL);
+  pixels(g, [[6, 0], [6, 1], [6, 2], [10, 0], [10, 1], [10, 2]], JACKAL); // orelhas
+  pixels(g, [[6, 1], [10, 1]], GOLD_DARK); // interior das orelhas
+  rect(g, 7, 6, 9, 7, JACKAL); // focinho
+  pixels(g, [[7, 4], [9, 4]], GOLD); // olhos dourados
+  pixels(g, [[6, 6], [10, 6]], GOLD); // faixas do nemes
+  return outlined(g);
+}
+function buildAnubisArmSprite(): HTMLCanvasElement {
+  return egyptArm((g) => {
+    pixels(g, [[12, 4], [12, 3], [12, 2], [12, 1]], GOLD); // cetro was
+    pixels(g, [[13, 0], [12, 0], [13, 1]], GOLD);
+  });
+}
+
+// Sekhmet: leoa de juba farta, com pequeno disco solar.
+function buildSekhmetBodySprite(): HTMLCanvasElement {
+  const g = emptyGrid();
+  egyptBody(g, SUN_RED, LION_MANE);
+  circle(g, 8, 4, 3.6, LION_MANE); // juba
+  circle(g, 8, 5, 2.4, LION);
+  pixels(g, [[8, 0], [7, 0], [9, 0]], SUN_RED); // disco solar
+  pixels(g, [[5, 2], [11, 2]], LION); // orelhas
+  pixels(g, [[7, 4], [9, 4]], SUN); // olhos ferozes
+  pixels(g, [[8, 6]], INK); // focinho
+  return outlined(g);
+}
+function buildSekhmetArmSprite(): HTMLCanvasElement {
+  return egyptArm((g) => {
+    pixels(g, [[12, 4], [12, 3], [13, 3], [13, 2]], LION);
+    pixels(g, [[12, 2], [13, 1], [14, 2]], CROWN_WHITE); // garras
+  });
+}
+
+// Thoth: íbis branco de bico longo e curvo, com lua crescente.
+function buildThothBodySprite(): HTMLCanvasElement {
+  const g = emptyGrid();
+  egyptBody(g, LAPIS, LINEN_SHADE);
+  pixels(g, [[7, 0], [8, 0], [9, 0], [6, 1], [10, 1]], MOON); // lua crescente
+  circle(g, 8, 4, 2.4, IBIS);
+  rect(g, 5, 4, 5, 7, LAPIS); // nemes azul
+  rect(g, 11, 4, 11, 7, LAPIS);
+  pixels(g, [[8, 6], [8, 7], [7, 8], [7, 9], [6, 10]], INK); // bico curvo descendo
+  pixels(g, [[7, 4], [9, 4]], INK);
+  return outlined(g);
+}
+function buildThothArmSprite(): HTMLCanvasElement {
+  return egyptArm((g) => {
+    pixels(g, [[12, 4], [13, 3], [14, 2]], LINEN); // pena de junco
+    pixels(g, [[15, 1]], INK);
+  });
+}
+
+// Sobek: crocodilo verde com focinho comprido e olhos no topo da cabeça.
+function buildSobekBodySprite(): HTMLCanvasElement {
+  const g = emptyGrid();
+  egyptBody(g, CROC, CROC);
+  circle(g, 8, 4, 2.6, CROC);
+  rect(g, 7, 5, 9, 8, CROC_LIGHT); // focinho comprido pra baixo
+  pixels(g, [[7, 8], [9, 8]], CROWN_WHITE); // dentes
+  pixels(g, [[6, 2], [10, 2]], GOLD); // olhos altos
+  pixels(g, [[5, 3], [11, 3]], LAPIS); // nemes
+  return outlined(g);
+}
+function buildSobekArmSprite(): HTMLCanvasElement {
+  return egyptArm((g) => {
+    pixels(g, [[12, 4]], GOLD_DARK); // cabo
+    pixels(g, [[12, 3], [12, 2], [13, 1], [14, 1], [14, 2]], BLADE); // khopesh curvo
+  });
+}
+
+// Bastet: gata negra de orelhas pontudas, olhos verdes e brinco de ouro.
+function buildBastetBodySprite(): HTMLCanvasElement {
+  const g = emptyGrid();
+  egyptBody(g, GOLD, CAT);
+  circle(g, 8, 4, 2.6, CAT);
+  pixels(g, [[5, 1], [5, 2], [6, 2], [11, 1], [11, 2], [10, 2]], CAT); // orelhas
+  pixels(g, [[7, 4], [9, 4]], CAT_EYE);
+  pixels(g, [[8, 6]], SUN_RED); // narizinho
+  pixels(g, [[11, 5]], GOLD); // brinco
+  return outlined(g);
+}
+function buildBastetArmSprite(): HTMLCanvasElement {
+  return egyptArm((g) => {
+    pixels(g, [[12, 4], [12, 3]], GOLD); // cabo do sistro
+    pixels(g, [[11, 2], [11, 1], [12, 0], [13, 1], [13, 2]], GOLD); // aro
+    pixels(g, [[12, 1]], BLADE); // plaquinhas
+  });
+}
+
+// Ísis: única com rosto humano — peruca negra, trono na cabeça e asas
+// abertas nas laterais do corpo.
+function buildIsisBodySprite(): HTMLCanvasElement {
+  const g = emptyGrid();
+  egyptBody(g, ISIS_WING, ISIS_WING);
+  rect(g, 2, 9, 3, 12, ISIS_WING); // asa esquerda
+  rect(g, 12, 9, 13, 12, ISIS_WING); // asa direita
+  pixels(g, [[1, 10], [1, 11], [14, 10], [14, 11]], LAPIS); // pontas das asas
+  rect(g, 5, 2, 11, 7, WIG); // peruca
+  circle(g, 8, 4, 2.2, EG_SKIN);
+  rect(g, 7, 0, 9, 1, GOLD); // trono
+  pixels(g, [[7, 0]], LAPIS);
+  pixels(g, [[7, 4], [9, 4]], INK);
+  pixels(g, [[6, 4], [10, 4]], LAPIS); // delineado
+  return outlined(g);
+}
+function buildIsisArmSprite(): HTMLCanvasElement {
+  return egyptArm((g) => {
+    pixels(g, [[12, 4], [12, 3]], GOLD); // haste do ankh
+    pixels(g, [[11, 2], [13, 2]], GOLD); // braço do ankh
+    pixels(g, [[12, 2], [11, 1], [13, 1], [12, 0]], GOLD); // laço
+  });
+}
+
+function outlined(g: Grid): HTMLCanvasElement {
+  outline(g, INK);
+  return rasterize(g);
+}
+
 // Inimigo "fraco em massa": criatura vermelha arredondada, com chifres
 // pequenos e olhos acesos. Ver GDD > Inimigos e Ondas.
 function buildGruntSprite(): HTMLCanvasElement {
@@ -588,6 +800,14 @@ export function buildSprites(): SpriteSet {
       hera: { body: buildHeraBodySprite(), arm: blank },
       hades: { body: buildHadesBodySprite(), arm: blank },
       hermes: { body: buildHermesBodySprite(), arm: blank },
+      ra: { body: buildRaBodySprite(), arm: buildRaArmSprite() },
+      horus: { body: buildHorusBodySprite(), arm: buildHorusArmSprite() },
+      anubis: { body: buildAnubisBodySprite(), arm: buildAnubisArmSprite() },
+      sekhmet: { body: buildSekhmetBodySprite(), arm: buildSekhmetArmSprite() },
+      thoth: { body: buildThothBodySprite(), arm: buildThothArmSprite() },
+      sobek: { body: buildSobekBodySprite(), arm: buildSobekArmSprite() },
+      bastet: { body: buildBastetBodySprite(), arm: buildBastetArmSprite() },
+      isis: { body: buildIsisBodySprite(), arm: buildIsisArmSprite() },
     },
     enemies: {
       grunt: buildGruntSprite(),
