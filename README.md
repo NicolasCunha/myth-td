@@ -17,7 +17,7 @@ Short, intense runs of 10–20 minutes, right in the browser: no install, no acc
 
 <br>
 
-<img width="1080" height="860" alt="image" src="https://github.com/user-attachments/assets/2eb8ec2c-9788-41da-b3f3-bd7d0cdd5417" />
+<img width="1080" height="860" alt="image" src="https://github.com/user-attachments/assets/2eb8ec2c-9788-41da-b3f3-bd7d0cdd5417" alt="A run at 5:27: Zeus, Poseidon, Athena, Artemis, Hera, Hades, Ra, Anubis, Odin and Freya around the glowing core on an 11x11 grid, enemies closing in from the edges, damage numbers floating; on the left, the tower menu by pantheon, the blessings picked so far and the active bonuses; below the map, the divine powers bar"/>
 
 </div>
 
